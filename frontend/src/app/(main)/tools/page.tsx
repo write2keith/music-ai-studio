@@ -44,17 +44,18 @@ export default function ToolsPage() {
     setResult(null);
 
     try {
+      const cleanUrl = url.trim().split("&list=")[0].split("?si=")[0];
       const res = await fetch("/api/tools/youtube", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ url: cleanUrl }),
       });
-      const data = await res.json();
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.detail || "Download failed");
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data || !data.ok) {
+        setError((data && data.detail) || `Server error (${res.status})`);
         return;
       }
 
