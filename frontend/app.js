@@ -1,8 +1,10 @@
 document.addEventListener("DOMContentLoaded", function () {
     checkHealth();
+    setupTabs();
     setupGenerate();
     setupSeparate();
     setupPipeline();
+    setupEdit();
 });
 
 function showSpinner(id) {
@@ -274,4 +276,229 @@ function formatSize(bytes) {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / 1048576).toFixed(1) + " MB";
+}
+
+function setupTabs() {
+    var tabs = document.querySelectorAll(".tab");
+    var panels = document.querySelectorAll(".tab-panel");
+
+    tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+            var target = this.getAttribute("data-tab");
+
+            tabs.forEach(function (t) { t.classList.remove("active"); });
+            panels.forEach(function (p) { p.classList.remove("active"); });
+
+            this.classList.add("active");
+            document.getElementById("tab-" + target).classList.add("active");
+        });
+    });
+}
+
+function setupEdit() {
+    setupEditDropZone();
+    setupEditSliders();
+    setupEditButtons();
+}
+
+function setupEditDropZone() {
+    var dropZone = document.getElementById("edit-drop-zone");
+    var fileInput = document.getElementById("edit-audio-file");
+    var dropText = document.getElementById("edit-drop-text");
+    var fileName = document.getElementById("edit-file-name");
+
+    dropZone.addEventListener("click", function () { fileInput.click(); });
+
+    dropZone.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        dropZone.classList.add("drag-over");
+    });
+
+    dropZone.addEventListener("dragleave", function () {
+        dropZone.classList.remove("drag-over");
+    });
+
+    dropZone.addEventListener("drop", function (e) {
+        e.preventDefault();
+        dropZone.classList.remove("drag-over");
+        if (e.dataTransfer.files.length > 0) {
+            fileInput.files = e.dataTransfer.files;
+            dropText.classList.add("hidden");
+            fileName.textContent = e.dataTransfer.files[0].name + " (" + formatSize(e.dataTransfer.files[0].size) + ")";
+            fileName.classList.remove("hidden");
+        }
+    });
+
+    fileInput.addEventListener("change", function () {
+        if (this.files.length > 0) {
+            dropText.classList.add("hidden");
+            fileName.textContent = this.files[0].name + " (" + formatSize(this.files[0].size) + ")";
+            fileName.classList.remove("hidden");
+        }
+    });
+}
+
+function setupEditSliders() {
+    var sliders = {
+        "volume-gain": "volume-gain-label",
+        "normalize-target": "normalize-target-label",
+        "speed-factor": "speed-factor-label",
+        "fx-reverb-room": "fx-reverb-room-label",
+        "fx-reverb-wet": "fx-reverb-wet-label",
+        "fx-delay-time": "fx-delay-time-label",
+        "fx-delay-mix": "fx-delay-mix-label",
+        "fx-delay-feedback": "fx-delay-feedback-label",
+        "fx-eq-low": "fx-eq-low-label",
+        "fx-eq-mid": "fx-eq-mid-label",
+        "fx-eq-high": "fx-eq-high-label",
+        "fx-comp-thresh": "fx-comp-thresh-label",
+        "fx-comp-ratio": "fx-comp-ratio-label",
+        "fx-gain": "fx-gain-label",
+    };
+
+    Object.keys(sliders).forEach(function (id) {
+        var slider = document.getElementById(id);
+        var label = document.getElementById(sliders[id]);
+        if (!slider || !label) return;
+
+        slider.addEventListener("input", function () {
+            var val = parseFloat(this.value);
+            if (id === "fx-reverb-room" || id === "fx-reverb-wet" || id === "fx-delay-mix" || id === "fx-delay-feedback") {
+                label.textContent = val + "%";
+            } else if (id === "fx-delay-time") {
+                label.textContent = val.toFixed(2) + "s";
+            } else if (id === "speed-factor") {
+                label.textContent = val.toFixed(2) + "x";
+            } else if (id === "fx-comp-thresh") {
+                label.textContent = val === 0 ? "Off" : val + " dB";
+            } else if (id === "fx-comp-ratio") {
+                label.textContent = val.toFixed(1) + ":1";
+            } else {
+                label.textContent = val + " dB";
+            }
+        });
+    });
+}
+
+function setupEditButtons() {
+    var buttons = document.querySelectorAll(".edit-btn");
+    buttons.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var action = this.getAttribute("data-action");
+            handleEditAction(action);
+        });
+    });
+}
+
+function getEditFile() {
+    var input = document.getElementById("edit-audio-file");
+    if (!input.files || input.files.length === 0) {
+        alert("Please upload an audio file first");
+        return null;
+    }
+    return input.files[0];
+}
+
+async function handleEditAction(action) {
+    var resultEl = document.getElementById("edit-result");
+    hideResult("edit-result");
+    showSpinner("edit-spinner");
+
+    var formData = new FormData();
+    var url = "";
+
+    try {
+        switch (action) {
+        case "trim": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("start_sec", document.getElementById("trim-start").value || "0");
+            formData.append("end_sec", document.getElementById("trim-end").value || "10");
+            url = "/api/edit/trim";
+            break;
+        }
+        case "fade": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("fade_in", document.getElementById("fade-in").value || "0");
+            formData.append("fade_out", document.getElementById("fade-out").value || "0");
+            url = "/api/edit/fade";
+            break;
+        }
+        case "volume": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("gain_db", document.getElementById("volume-gain").value);
+            url = "/api/edit/volume";
+            break;
+        }
+        case "normalize": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("target_db", document.getElementById("normalize-target").value);
+            url = "/api/edit/normalize";
+            break;
+        }
+        case "speed": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("factor", document.getElementById("speed-factor").value);
+            url = "/api/edit/speed";
+            break;
+        }
+        case "merge": {
+            var mergeInput = document.getElementById("merge-files");
+            if (!mergeInput.files || mergeInput.files.length < 2) {
+                alert("Select at least 2 files to merge");
+                hideSpinner("edit-spinner");
+                return;
+            }
+            for (var i = 0; i < mergeInput.files.length; i++) {
+                formData.append("files", mergeInput.files[i]);
+            }
+            url = "/api/edit/merge";
+            break;
+        }
+        case "effects": {
+            var file = getEditFile();
+            if (!file) { hideSpinner("edit-spinner"); return; }
+            formData.append("file", file);
+            formData.append("reverb_room_size", document.getElementById("fx-reverb-room").value / 100);
+            formData.append("reverb_wet", document.getElementById("fx-reverb-wet").value / 100);
+            formData.append("delay_seconds", document.getElementById("fx-delay-time").value);
+            formData.append("delay_feedback", document.getElementById("fx-delay-feedback").value / 100);
+            formData.append("delay_mix", document.getElementById("fx-delay-mix").value / 100);
+            formData.append("eq_low_gain", document.getElementById("fx-eq-low").value);
+            formData.append("eq_mid_gain", document.getElementById("fx-eq-mid").value);
+            formData.append("eq_high_gain", document.getElementById("fx-eq-high").value);
+            formData.append("compressor_threshold", document.getElementById("fx-comp-thresh").value);
+            formData.append("compressor_ratio", document.getElementById("fx-comp-ratio").value);
+            formData.append("gain_db", document.getElementById("fx-gain").value);
+            url = "/api/edit/effects";
+            break;
+        }
+        }
+
+        var res = await fetch(url, { method: "POST", body: formData });
+        if (!res.ok) {
+            var err = await res.json();
+            throw new Error(err.detail || "Edit failed");
+        }
+        var data = await res.json();
+
+        resultEl.innerHTML = "<h3>Edit Complete</h3>";
+        var capAction = action.charAt(0).toUpperCase() + action.slice(1);
+        resultEl.appendChild(renderAudioPlayer(data.url, capAction + " Result"));
+        showResult("edit-result");
+    } catch (err) {
+        resultEl.innerHTML = '<p class="error-msg">Error: ' + err.message + "</p>";
+        showResult("edit-result");
+    } finally {
+        hideSpinner("edit-spinner");
+    }
 }
