@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    border-color: var(--color-zinc-800);
+  }
+  body {
+    background-color: var(--color-zinc-950);
+    color: var(--color-zinc-100);
+  }
+}
+
+@layer components {
+  .card {
+    background-color: color-mix(in srgb, var(--color-zinc-900) 80%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-zinc-800) 80%, transparent);
+    border-radius: 1rem;
+    padding: 1.5rem;
+  }
+  .input {
+    width: 100%;
+    background-color: color-mix(in srgb, var(--color-zinc-800) 50%, transparent);
+    border: 1px solid var(--color-zinc-700);
+    border-radius: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    color: var(--color-zinc-200);
+    outline: none;
+    transition: border-color 0.2s;
+    &::placeholder {
+      color: var(--color-zinc-500);
+    }
+    &:focus {
+      border-color: color-mix(in srgb, var(--color-violet-500) 50%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-violet-500) 20%, transparent);
+    }
+  }
+  .btn-primary {
+    width: 100%;
+    background-color: var(--color-violet-600);
+    color: white;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    padding: 0.625rem;
+    transition: background-color 0.2s;
+    &:hover {
+      background-color: var(--color-violet-500);
+    }
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+  .btn-secondary {
+    width: 100%;
+    background-color: var(--color-zinc-800);
+    color: var(--color-zinc-200);
+    font-weight: 500;
+    border-radius: 0.5rem;
+    padding: 0.625rem;
+    transition: background-color 0.2s;
+    &:hover {
+      background-color: var(--color-zinc-700);
+    }
+  }
+}

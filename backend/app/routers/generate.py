@@ -1,0 +1,103 @@
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks
+from fastapi.responses import FileResponse
+
+from ..models.schemas import (
+    GenerationJobResponse,
+    AudioResponse,
+    StemResponse,
+    ErrorResponse,
+    GenerateRequest,
+    StemModel,
+)
+from ..queue.worker import queue, JobStatus
+from ..config import get_settings
+
+router = APIRouter(prefix="/api", tags=["ai"])
+
+
+@router.post(
+    "/generate",
+    response_model=GenerationJobResponse,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def generate(
+    prompt: str = Form(..., min_length=1, max_length=1000),
+    duration: int = Form(default=10, ge=5, le=30),
+):
+    try:
+        job = queue.submit("generate", {"prompt": prompt.strip(), "duration": duration})
+        return GenerationJobResponse(
+            job_id=job.id,
+            status=job.status,
+            created_at=job.created_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/generate/{job_id}", response_model=GenerationJobResponse)
+async def get_generation_status(job_id: str):
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    response = GenerationJobResponse(
+        job_id=job.id,
+        status=job.status,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        error=job.error,
+    )
+
+    if job.status == JobStatus.COMPLETED and job.result:
+        filepath = job.result.get("filepath", "")
+        filename = Path(filepath).name
+        response.result = AudioResponse(
+            url=f"/api/audio/{filename}",
+            filename=filename,
+            duration=job.result.get("duration"),
+        )
+
+    return response
+
+
+@router.post(
+    "/separate",
+    response_model=StemResponse,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def separate(
+    file: UploadFile = File(...),
+    model: str = Form(default="htdemucs"),
+):
+    try:
+        if file.content_type and not file.content_type.startswith("audio/"):
+            raise HTTPException(status_code=400, detail="Invalid file type")
+
+        settings = get_settings()
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        ext = Path(file.filename).suffix or ".wav"
+        upload_path = upload_dir / f"{uuid.uuid4().hex}{ext}"
+        content = await file.read()
+        upload_path.write_bytes(content)
+
+        from ..services.separator import separate as separate_stems
+        result = separate_stems(str(upload_path), model_name=model)
+
+        stem_urls = {}
+        for name, path in result["stems"].items():
+            stem_name = Path(path).name
+            stem_urls[name] = f"/api/audio/stems/{result['model']}/{Path(result['source']).stem}/{stem_name}"
+
+        return StemResponse(model=result["model"], stems=stem_urls)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
