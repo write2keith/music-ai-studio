@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Wand2,
   Sparkles,
@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { api } from "@/lib/api";
 
 const genres = [
   "Lo-Fi", "Trap", "House", "Drill", "Jazz", "Ambient",
@@ -31,27 +32,32 @@ const keys = ["C", "Cm", "D", "Dm", "E", "Em", "F", "Fm", "G", "Gm", "A", "Am", 
 const bpms = ["60-80", "80-100", "100-120", "120-140", "140-160", "160+"];
 const structures = ["Intro→Verse→Chorus", "Loop (8 bars)", "ABA", "Build-up→Drop", "Standard Pop"];
 
-export function PromptBuilder() {
+export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
   const { toast } = useToast();
   const [prompt, setPrompt] = useState("");
+  const [duration, setDuration] = useState(10);
   const [genre, setGenre] = useState<string | null>(null);
   const [mood, setMood] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
   const [bpm, setBpm] = useState<string | null>(null);
   const [structure, setStructure] = useState<string | null>(null);
   const [enhancing, setEnhancing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
 
   const handleEnhance = async () => {
     if (!prompt.trim()) return;
     setEnhancing(true);
+    setEnhancedPrompt(null);
     try {
-      // Simulate LLM enhancement
-      await new Promise((r) => setTimeout(r, 1500));
-      const tags = [genre, mood, key, bpm ? `${bpm} BPM` : null, structure].filter(Boolean);
-      const enhanced = `${prompt} — ${tags.join(", ")} — professional production, high quality mix, mastered`;
-      setEnhancedPrompt(enhanced);
-      setPrompt(enhanced);
+      const result = await api.enhancePrompt(prompt.trim(), {
+        genre: genre || undefined,
+        mood: mood || undefined,
+        key: key || undefined,
+        bpm: bpm ? parseInt(bpm.split("-")[0] || "120", 10) : undefined,
+        structure: structure || undefined,
+      });
+      setEnhancedPrompt(result.enhanced_prompt);
       toast("success", "Prompt enhanced", "AI has enriched your prompt with professional details.");
     } catch {
       toast("error", "Enhancement failed", "Please try again.");
@@ -60,12 +66,30 @@ export function PromptBuilder() {
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast("error", "Enter a prompt", "Describe the music you want to create.");
       return;
     }
-    toast("info", "Generating...", "Your track is being created. This may take a moment.");
+    setGenerating(true);
+    try {
+      const bpmValue = bpm ? parseInt(bpm.split("-")[0] || "120", 10) : undefined;
+      await api.generate(prompt.trim(), duration, {
+        genre: genre || undefined,
+        mood: mood || undefined,
+        key: key || undefined,
+        bpm: bpmValue,
+        structure: structure || undefined,
+      });
+      toast("success", "Generation started", "Your track is being created. This may take a moment.");
+      setPrompt("");
+      setEnhancedPrompt(null);
+      onGenerate?.();
+    } catch {
+      toast("error", "Generation failed", "Please try again.");
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -107,10 +131,18 @@ export function PromptBuilder() {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
-            className="flex items-start gap-2 px-3 py-2 rounded-lg bg-daw-accent/5 border border-daw-accent/20"
+            className="flex items-start gap-2 px-3 py-2 rounded-lg bg-daw-accent/5 border border-daw-accent/20 cursor-pointer hover:bg-daw-accent/10 transition-colors"
+            onClick={() => {
+              setPrompt(enhancedPrompt);
+              setEnhancedPrompt(null);
+            }}
+            title="Click to apply this enhanced prompt"
           >
             <Sparkles className="w-3.5 h-3.5 text-daw-accent mt-0.5 shrink-0" />
-            <p className="text-xs text-daw-text-muted">{enhancedPrompt}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-daw-text-muted">{enhancedPrompt}</p>
+              <p className="text-[10px] text-daw-accent mt-0.5">Click to use this prompt</p>
+            </div>
           </motion.div>
         )}
       </div>
@@ -159,15 +191,47 @@ export function PromptBuilder() {
         />
       </div>
 
+      {/* Duration */}
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-daw-text-dim mb-2 flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />
+          Duration
+        </p>
+        <div className="bg-daw-surface rounded-lg p-3 space-y-2">
+          <input
+            type="range"
+            min={5}
+            max={30}
+            value={duration}
+            onChange={(e) => setDuration(Number(e.target.value))}
+            className="w-full accent-daw-accent h-1.5"
+          />
+          <div className="flex justify-between text-[10px] text-daw-text-dim">
+            <span>5s</span>
+            <span className="text-daw-text-muted font-medium">{duration}s</span>
+            <span>30s</span>
+          </div>
+        </div>
+      </div>
+
       {/* Generate button */}
       <Button
         size="lg"
         className="w-full"
         onClick={handleGenerate}
-        disabled={!prompt.trim()}
+        disabled={!prompt.trim() || generating}
       >
-        <Play className="w-4 h-4" />
-        Generate Track
+        {generating ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Generating...
+          </>
+        ) : (
+          <>
+            <Play className="w-4 h-4" />
+            Generate Track
+          </>
+        )}
       </Button>
     </div>
   );

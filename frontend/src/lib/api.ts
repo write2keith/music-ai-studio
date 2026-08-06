@@ -4,6 +4,8 @@ import type {
   StemResult,
   GenerationJob,
   EffectsParams,
+  Track,
+  CommunityPost,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -53,10 +55,21 @@ async function upload<T>(path: string, formData: FormData): Promise<T> {
 export const api = {
   health: () => request<HealthInfo>("/api/health"),
 
-  generate: (prompt: string, duration: number = 10) => {
+  generate: (prompt: string, duration: number = 10, meta?: {
+    genre?: string;
+    mood?: string;
+    key?: string;
+    bpm?: number;
+    structure?: string;
+  }) => {
     const fd = new FormData();
     fd.append("prompt", prompt);
     fd.append("duration", String(duration));
+    if (meta?.genre) fd.append("genre", meta.genre);
+    if (meta?.mood) fd.append("mood", meta.mood);
+    if (meta?.key) fd.append("key", meta.key);
+    if (meta?.bpm) fd.append("bpm", String(meta.bpm));
+    if (meta?.structure) fd.append("structure", meta.structure);
     return upload<GenerationJob>("/api/generate", fd);
   },
 
@@ -68,6 +81,61 @@ export const api = {
     fd.append("file", file);
     fd.append("model", model);
     return upload<StemResult>("/api/separate", fd);
+  },
+
+  getTracks: () => request<Track[]>("/api/tracks"),
+
+  getTrack: (id: string) => request<Track>(`/api/tracks/${id}`),
+
+  getCommunity: () => request<CommunityPost[]>("/api/community"),
+
+  getLibrary: (status?: string) => {
+    const query = status ? `?status=${status}` : "";
+    return request<Track[]>(`/api/library${query}`);
+  },
+
+  publishTrack: (id: string) =>
+    request<{ status: string; track: Track }>(`/api/tracks/${id}/publish`, { method: "POST" }),
+
+  unpublishTrack: (id: string) =>
+    request<{ status: string; track: Track }>(`/api/tracks/${id}/unpublish`, { method: "POST" }),
+
+  forkTrack: (id: string) =>
+    request<{ status: string; track: Track }>(`/api/tracks/${id}/fork`, { method: "POST" }),
+
+  enhancePrompt: (prompt: string, meta?: {
+    genre?: string;
+    mood?: string;
+    key?: string;
+    bpm?: number;
+    structure?: string;
+  }) => {
+    return request<{ enhanced_prompt: string }>("/api/enhance-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, ...meta }),
+    });
+  },
+
+  auth: {
+    login: (email: string, password: string) =>
+      request<{ user: any; message: string }>("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      }),
+
+    register: (email: string, name: string, password: string) =>
+      request<{ user: any; message: string }>("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name, password }),
+      }),
+
+    logout: () =>
+      request<{ message: string }>("/api/auth/logout", { method: "POST" }),
+
+    me: () => request<{ user: any }>("/api/auth/me"),
   },
 
   edit: {

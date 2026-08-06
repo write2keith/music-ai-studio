@@ -52,11 +52,11 @@ export function AudioPlayer({ url, label, compact = false }: AudioPlayerProps) {
 
   if (compact) {
     return (
-      <div className="flex items-center gap-2 bg-zinc-800/50 rounded-lg p-2">
+      <div className="flex items-center gap-2 bg-daw-surface-3/50 rounded-lg p-2">
         <audio ref={audioRef} src={url} />
         <button
           onClick={toggle}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 hover:bg-violet-600 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-daw-accent hover:bg-daw-accent-glow transition-colors"
         >
           {playing ? (
             <Pause className="w-4 h-4 text-white" />
@@ -66,18 +66,18 @@ export function AudioPlayer({ url, label, compact = false }: AudioPlayerProps) {
         </button>
         <div className="flex-1 min-w-0">
           {label && (
-            <p className="text-xs font-medium text-zinc-300 truncate">
+            <p className="text-xs font-medium text-daw-text truncate">
               {label}
             </p>
           )}
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-daw-text-muted">
             {formatSeconds(currentTime)} / {formatSeconds(duration)}
           </p>
         </div>
         <a
           href={url}
           download
-          className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="p-1.5 text-daw-text-muted hover:text-daw-text transition-colors"
         >
           <Download className="w-4 h-4" />
         </a>
@@ -86,12 +86,12 @@ export function AudioPlayer({ url, label, compact = false }: AudioPlayerProps) {
   }
 
   return (
-    <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl p-4">
+    <div className="bg-daw-surface/30 border border-daw-border rounded-xl p-4">
       <audio ref={audioRef} src={url} className="hidden" />
       <div className="flex items-center gap-3">
         <button
           onClick={toggle}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-violet-500 hover:bg-violet-600 transition-colors shrink-0"
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-daw-accent hover:bg-daw-accent-glow transition-colors shrink-0"
         >
           {playing ? (
             <Pause className="w-5 h-5 text-white" />
@@ -101,11 +101,11 @@ export function AudioPlayer({ url, label, compact = false }: AudioPlayerProps) {
         </button>
         <div className="flex-1 min-w-0">
           {label && (
-            <p className="text-sm font-medium text-zinc-200 truncate">
+            <p className="text-sm font-medium text-daw-text truncate">
               {label}
             </p>
           )}
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-daw-text-muted">
             <Volume2 className="w-3 h-3" />
             <span>
               {formatSeconds(currentTime)} / {formatSeconds(duration)}
@@ -115,7 +115,7 @@ export function AudioPlayer({ url, label, compact = false }: AudioPlayerProps) {
         <a
           href={url}
           download
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg text-sm transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-border hover:bg-daw-border-hover text-daw-text rounded-lg text-sm transition-colors"
         >
           <Download className="w-4 h-4" />
           Download

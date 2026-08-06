@@ -1,6 +1,6 @@
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.responses import FileResponse
 
 from ..models.schemas import (
@@ -13,6 +13,7 @@ from ..models.schemas import (
 )
 from ..queue.worker import queue, JobStatus
 from ..config import get_settings
+from ..store.tracks import track_store
 
 router = APIRouter(prefix="/api", tags=["ai"])
 
@@ -23,11 +24,43 @@ router = APIRouter(prefix="/api", tags=["ai"])
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 async def generate(
+    request: Request,
     prompt: str = Form(..., min_length=1, max_length=1000),
     duration: int = Form(default=10, ge=5, le=30),
+    genre: str = Form(default=None),
+    mood: str = Form(default=None),
+    key: str = Form(default=None),
+    bpm: int = Form(default=None),
+    structure: str = Form(default=None),
 ):
     try:
-        job = queue.submit("generate", {"prompt": prompt.strip(), "duration": duration})
+        settings = get_settings()
+        job = queue.submit("generate", {
+            "prompt": prompt.strip(),
+            "duration": duration,
+            "genre": genre,
+            "mood": mood,
+            "key": key,
+            "bpm": bpm,
+            "structure": structure,
+        })
+
+        filename = f"{job.id}.wav"
+        filepath = str(Path(settings.UPLOAD_DIR) / filename)
+        track_store.create_from_generation(
+            job_id=job.id,
+            prompt=prompt.strip(),
+            duration=duration,
+            filepath=filepath,
+            filename=filename,
+            user_id=getattr(request.state, "user_id", None),
+            genre=genre,
+            mood=mood,
+            key=key,
+            bpm=bpm,
+            structure=structure,
+        )
+
         return GenerationJobResponse(
             job_id=job.id,
             status=job.status,
@@ -61,6 +94,7 @@ async def get_generation_status(job_id: str):
             filename=filename,
             duration=job.result.get("duration"),
         )
+        track_store.complete(job_id)
 
     return response
 

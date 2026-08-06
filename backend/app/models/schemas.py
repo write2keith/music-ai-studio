@@ -105,3 +105,57 @@ class ErrorResponse(BaseModel):
     error: str
     code: str
     detail: Optional[str] = None
+
+
+# --- Track / Library / Community Schemas ---
+
+class TrackResponse(BaseModel):
+    id: str
+    title: str
+    artist: str
+    prompt: str
+    duration: int
+    url: str
+    filename: str
+    genre: str
+    mood: str
+    key: str
+    bpm: int
+    structure: Optional[str] = None
+    status: str
+    is_published: bool
+    has_stems: bool
+    play_count: int
+    likes: int
+    exports: list[str]
+    created_at: str
+
+
+class CommunityPostResponse(BaseModel):
+    id: str
+    title: str
+    artist: str
+    artist_avatar: str
+    prompt: str
+    genre: str
+    mood: str
+    bpm: int
+    key: str
+    duration: int
+    url: str
+    likes: int
+    forks: int
+    created_at: str
+
+
+class PromptEnhanceRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=1000)
+    genre: Optional[str] = None
+    mood: Optional[str] = None
+    key: Optional[str] = None
+    bpm: Optional[int] = None
+    structure: Optional[str] = None
+
+
+class PromptEnhanceResponse(BaseModel):
+    enhanced_prompt: str

@@ -200,7 +200,7 @@ export default function WaveformEditor() {
       {/* File Loader */}
       {!fileUrl ? (
         <div
-          className="card flex flex-col items-center justify-center gap-4 py-16 cursor-pointer hover:border-violet-500/30 transition-colors"
+          className="glass rounded-xl flex flex-col items-center justify-center gap-4 py-16 cursor-pointer hover:border-daw-accent/30 transition-colors"
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleFileDrop}
         >
@@ -215,11 +215,11 @@ export default function WaveformEditor() {
             id="editor-file"
           />
           <label htmlFor="editor-file" className="cursor-pointer text-center">
-            <div className="w-16 h-16 rounded-2xl bg-violet-500/10 flex items-center justify-center mx-auto mb-4">
-              <Music className="w-8 h-8 text-violet-400" />
+            <div className="w-16 h-16 rounded-2xl bg-daw-accent/10 flex items-center justify-center mx-auto mb-4">
+              <Music className="w-8 h-8 text-daw-accent" />
             </div>
             <h2 className="text-xl font-semibold mb-1">Audio Editor</h2>
-            <p className="text-zinc-500 text-sm">
+            <p className="text-daw-text-muted text-sm">
               Click to upload or drag and drop an audio file
             </p>
           </label>
@@ -227,10 +227,10 @@ export default function WaveformEditor() {
       ) : (
         <>
           {/* Toolbar */}
-          <div className="card !p-3">
+          <div className="glass rounded-xl !p-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm cursor-pointer transition-colors">
+                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover rounded-lg text-sm cursor-pointer transition-colors">
                   <Upload className="w-4 h-4" />
                   Open
                   <input
@@ -243,7 +243,7 @@ export default function WaveformEditor() {
                     className="hidden"
                   />
                 </label>
-                <span className="text-xs text-zinc-500 truncate max-w-[180px]">
+                <span className="text-xs text-daw-text-muted truncate max-w-[180px]">
                   {file?.name}
                 </span>
               </div>
@@ -251,7 +251,7 @@ export default function WaveformEditor() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={togglePlay}
-                  className="p-2 rounded-lg bg-violet-600 hover:bg-violet-500 transition-colors"
+                  className="p-2 rounded-lg bg-daw-accent hover:bg-daw-accent-glow transition-colors"
                 >
                   {playing ? (
                     <Pause className="w-4 h-4" />
@@ -261,11 +261,11 @@ export default function WaveformEditor() {
                 </button>
                 <button
                   onClick={stop}
-                  className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                  className="p-2 rounded-lg bg-daw-surface-3 hover:bg-daw-border-hover transition-colors"
                 >
                   <Square className="w-4 h-4" />
                 </button>
-                <span className="text-xs font-mono text-zinc-400 ml-2 min-w-[80px]">
+                <span className="text-xs font-mono text-daw-text-muted ml-2 min-w-[80px]">
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
               </div>
@@ -273,13 +273,13 @@ export default function WaveformEditor() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setZoom((z) => Math.min(z * 1.5, 100))}
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                  className="p-1.5 rounded-lg bg-daw-surface-3 hover:bg-daw-border-hover transition-colors"
                 >
                   <ZoomIn className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setZoom((z) => Math.max(z / 1.5, 1))}
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                  className="p-1.5 rounded-lg bg-daw-surface-3 hover:bg-daw-border-hover transition-colors"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
@@ -288,8 +288,8 @@ export default function WaveformEditor() {
           </div>
 
           {/* Waveform placeholder */}
-          <div className="card !p-0 overflow-hidden">
-            <div className="h-40 bg-zinc-950 flex items-center justify-center relative">
+          <div className="glass rounded-xl !p-0 overflow-hidden">
+            <div className="h-40 bg-daw-bg flex items-center justify-center relative">
               <canvas
                 ref={canvasRef}
                 className="w-full h-full"
@@ -311,19 +311,19 @@ export default function WaveformEditor() {
                 className="hidden"
               />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <p className="text-xs text-zinc-700">
+                <p className="text-xs text-daw-text-dim">
                   Waveform &mdash; drag to select, then use edit tools below
                 </p>
               </div>
             </div>
 
             {/* Selection display */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border-t border-zinc-800">
-              <span className="text-xs text-zinc-600">Selection:</span>
+            <div className="flex items-center gap-2 px-4 py-2 bg-daw-surface border-t border-daw-border">
+              <span className="text-xs text-daw-text-dim">Selection:</span>
               <span className="text-xs font-mono text-green-400">
                 {regionStart !== null ? formatTime(regionStart) : "--"}
               </span>
-              <span className="text-xs text-zinc-600">-</span>
+              <span className="text-xs text-daw-text-dim">-</span>
               <span className="text-xs font-mono text-green-400">
                 {regionEnd !== null ? formatTime(regionEnd) : "--"}
               </span>
@@ -331,12 +331,12 @@ export default function WaveformEditor() {
           </div>
 
           {/* Edit Actions */}
-          <div className="card space-y-3">
+          <div className="glass rounded-xl space-y-3">
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => handleEditAction("trim")}
                 disabled={loading || !file}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 <Scissors className="w-3.5 h-3.5" />
                 Cut Outside
@@ -344,7 +344,7 @@ export default function WaveformEditor() {
               <button
                 onClick={() => handleEditAction("crop")}
                 disabled={loading || !file || regionStart === null || regionEnd === null}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 <Scissors className="w-3.5 h-3.5" />
                 Keep Selection
@@ -352,42 +352,42 @@ export default function WaveformEditor() {
               <button
                 onClick={() => handleEditAction("fade-in")}
                 disabled={loading || !file}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 Fade In
               </button>
               <button
                 onClick={() => handleEditAction("fade-out")}
                 disabled={loading || !file}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 Fade Out
               </button>
               <button
                 onClick={() => handleEditAction("normalize")}
                 disabled={loading || !file}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 Normalize
               </button>
               <button
                 onClick={() => setShowSpeed(true)}
                 disabled={loading || !file}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 <Gauge className="w-3.5 h-3.5" />
                 Speed
               </button>
               <button
                 onClick={() => setShowMerge(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover rounded-lg text-sm transition-colors"
               >
                 <GitMerge className="w-3.5 h-3.5" />
                 Merge
               </button>
               <button
                 onClick={() => setShowEffects(!showEffects)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border-hover rounded-lg text-sm transition-colors"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 Effects
@@ -397,7 +397,7 @@ export default function WaveformEditor() {
 
           {/* Effects Panel */}
           {showEffects && (
-            <div className="card grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="glass rounded-xl grid grid-cols-2 md:grid-cols-3 gap-4">
               <EffectSlider
                 label="Reverb Room"
                 value={effects.reverb_room_size}
@@ -486,7 +486,7 @@ export default function WaveformEditor() {
               <button
                 onClick={() => handleEditAction("effects")}
                 disabled={loading || !file}
-                className="col-span-full btn-primary"
+                className="col-span-full daw-button daw-button-primary"
               >
                 Apply Effects Chain
               </button>
@@ -508,7 +508,7 @@ export default function WaveformEditor() {
 
       {/* Edit Result */}
       {editResult && (
-        <div className="card">
+        <div className="glass rounded-xl">
           <AudioPlayer
             url={editResult.url}
             label={`${editLabel.charAt(0).toUpperCase() + editLabel.slice(1)} Result`}
@@ -519,7 +519,7 @@ export default function WaveformEditor() {
       {/* Speed Dialog */}
       {showSpeed && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm">
+          <div className="bg-daw-surface border border-daw-border rounded-2xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-semibold mb-4">Change Speed</h3>
             <div className="mb-4">
               <input
@@ -529,19 +529,19 @@ export default function WaveformEditor() {
                 step={0.05}
                 value={speedFactor}
                 onChange={(e) => setSpeedFactor(Number(e.target.value))}
-                className="w-full accent-violet-500"
+                className="w-full accent-daw-accent"
               />
-              <p className="text-center text-sm text-zinc-400 mt-1">
+              <p className="text-center text-sm text-daw-text-muted mt-1">
                 {speedFactor.toFixed(2)}x
               </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={handleSpeedApply} className="btn-primary flex-1">
+              <button onClick={handleSpeedApply} className="daw-button daw-button-primary flex-1">
                 Apply
               </button>
               <button
                 onClick={() => setShowSpeed(false)}
-                className="btn-secondary flex-1"
+                className="daw-button daw-button-secondary flex-1"
               >
                 Cancel
               </button>
@@ -553,9 +553,9 @@ export default function WaveformEditor() {
       {/* Merge Dialog */}
       {showMerge && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm">
+          <div className="bg-daw-surface border border-daw-border rounded-2xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-semibold mb-2">Merge Stems</h3>
-            <p className="text-sm text-zinc-500 mb-4">
+            <p className="text-sm text-daw-text-muted mb-4">
               Select 2+ audio files to merge
             </p>
             <div className="mb-4">
@@ -564,16 +564,16 @@ export default function WaveformEditor() {
                 accept=".wav,.mp3"
                 multiple
                 onChange={(e) => setMergeFiles(e.target.files)}
-                className="input"
+                className="daw-input"
               />
             </div>
             <div className="flex gap-2">
-              <button onClick={handleMergeApply} className="btn-primary flex-1">
+              <button onClick={handleMergeApply} className="daw-button daw-button-primary flex-1">
                 Merge
               </button>
               <button
                 onClick={() => setShowMerge(false)}
-                className="btn-secondary flex-1"
+                className="daw-button daw-button-secondary flex-1"
               >
                 Cancel
               </button>
@@ -606,7 +606,7 @@ function EffectSlider({
 }) {
   return (
     <div>
-      <label className="text-xs text-zinc-500 mb-1 block">{label}</label>
+      <label className="text-xs text-daw-text-muted mb-1 block">{label}</label>
       <input
         type="range"
         min={min}
@@ -614,9 +614,9 @@ function EffectSlider({
         step={step}
         value={value * divisor}
         onChange={(e) => onChange(Number(e.target.value) / divisor)}
-        className="w-full accent-violet-500"
+        className="w-full accent-daw-accent"
       />
-      <p className="text-xs text-zinc-600">
+      <p className="text-xs text-daw-text-dim">
         {divisor === 1 ? value : (value * divisor).toFixed(0)}{suffix}
       </p>
     </div>

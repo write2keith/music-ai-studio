@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from .config import get_settings
-from .routers import generate, edit
+from .routers import generate, edit, tracks, llm, auth, billing
+from .middleware.auth import AuthMiddleware
 from .queue.tasks import setup_tasks
 from .queue.worker import queue, JobStatus
 
@@ -51,8 +52,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(AuthMiddleware)
+
 app.include_router(generate.router)
 app.include_router(edit.router)
+app.include_router(tracks.router)
+app.include_router(llm.router)
+app.include_router(auth.router)
+app.include_router(billing.router)
 
 
 @app.get("/api/health")

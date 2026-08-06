@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.1.0] - 2026-08-06
+
+### Added
+- Authentication system: email/password registration and login with JWT session tokens
+- `/login` page with DAW-themed glass card UI, sign-in/sign-up toggle, error states
+- Auth context provider (`useAuth()`) with auto-session refresh on mount
+- User menu dropdown in TopNav (name, email, sign out) and Sign In button for guests
+- Backend `POST /api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `GET /api/auth/me`
+- JWT-based auth middleware with `python-jose` and bcrypt password hashing
+- In-memory user store with email uniqueness enforcement
+
+### Added (Billing)
+- Stripe billing router: `GET /api/billing/plans`, `GET /api/billing/credits`, `POST /api/billing/checkout`, `POST /api/billing/webhook`
+- Credit management in user store: `add_credits()`, `deduct_credits()`, `get_credits()`
+- Test mode: selecting a plan instantly grants credits when Stripe keys are not configured
+- CreditWidget reads real user credits from auth context and sends checkout requests
+- Free ($0/10cr), Pro ($12/200cr), Studio ($29/unlimited) plan tiers
+
+### Added (Publish & Fork)
+- `POST /api/tracks/{id}/publish` and `POST /api/tracks/{id}/unpublish` endpoints with ownership checks
+- `POST /api/tracks/{id}/fork` endpoint (clones track or community post into user library, increments fork count)
+- Track model: `user_id` field with per-user track filtering in `list_user_tracks()`
+- Frontend mutation hooks: `usePublish()`, `useUnpublish()`, `useFork()`
+- LibraryView: Globe/GlobeOff publish/unpublish buttons on completed tracks
+- CommunityFeed: wired fork button with loading spinner, optimistic count, toast notification
+- TrackCard grid variant: wired fork quick action with loading state and toast
+
+### Fixed
+- Root route structure split into `(main)` (sidebar+topnav shell) and `(auth)` (standalone login) route groups
+
 ## [2.0.0] - 2026-08-06
 
 ### Added

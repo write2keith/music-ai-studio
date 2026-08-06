@@ -12,49 +12,62 @@ music-ai-studio/
 │   │   ├── config.py            # Centralized settings via pydantic-settings
 │   │   ├── routers/
 │   │   │   ├── generate.py      # /api/generate, /api/separate endpoints
-│   │   │   └── edit.py          # /api/edit/* endpoints
+│   │   │   ├── edit.py          # /api/edit/* endpoints
+│   │   │   ├── tracks.py        # /api/tracks, /api/community, /api/library
+│   │   │   ├── auth.py          # /api/auth/register, /login, /logout, /me
+│   │   │   ├── billing.py       # /api/billing/plans, /credits, /checkout, /webhook
+│   │   │   └── llm.py          # /api/enhance-prompt (LLM prompt enrichment)
+│   │   ├── store/
+│   │   │   ├── tracks.py        # In-memory track store with community seeding
+│   │   │   └── users.py         # In-memory user store with bcrypt auth
 │   │   ├── models/
 │   │   │   └── schemas.py       # Pydantic request/response validation
 │   │   ├── services/
 │   │   │   ├── generator.py     # MusicGen (HuggingFace Transformers)
 │   │   │   ├── separator.py     # Demucs stem separation
-│   │   │   └── editor.py        # pydub + Pedalboard audio editing
+│   │   │   ├── editor.py        # pydub + Pedalboard audio editing
+│   │   │   └── llm.py           # OpenAI-compatible LLM prompt enhancer
 │   │   ├── queue/
 │   │   │   ├── worker.py        # In-memory job queue (Redis fallback ready)
 │   │   │   └── tasks.py         # Registered async task handlers
 │   │   └── middleware/
-│   │       └── auth.py          # Authentication middleware
+│   │       └── auth.py          # JWT authentication middleware
 │   ├── prisma/
 │   │   └── schema.prisma        # Database schema (User, Project, Generation, Separation)
 │   └── requirements.txt
 ├── frontend/                    # Next.js TypeScript frontend
 │   ├── src/
-│   │   ├── app/                 # App router pages
-│   │   │   ├── page.tsx         # Redirect to /studio
-│   │   │   ├── layout.tsx       # Root layout with sidebar + topbar
+│   │   ├── app/
+│   │   │   ├── layout.tsx       # Root layout (auth + toast + audio providers)
 │   │   │   ├── globals.css      # DAW dark theme design system
-│   │   │   ├── studio/          # Studio dashboard (prompt builder + tracks)
-│   │   │   ├── community/       # Community feed (discover, trending)
-│   │   │   ├── library/         # Personal library (track management)
-│   │   │   ├── generate/        # Stem separation
-│   │   │   └── editor/          # Audio waveform editor
+│   │   │   ├── providers.tsx    # React Query provider
+│   │   │   ├── (main)/          # Authenticated routes (sidebar + topnav shell)
+│   │   │   │   ├── layout.tsx
+│   │   │   │   ├── page.tsx     # Redirect to /studio
+│   │   │   │   ├── studio/      # Studio dashboard
+│   │   │   │   ├── community/   # Community feed
+│   │   │   │   ├── library/     # Personal library
+│   │   │   │   ├── generate/    # Stem separation
+│   │   │   │   └── editor/      # Audio waveform editor
+│   │   │   └── (auth)/          # Auth routes (standalone, no shell)
+│   │   │       ├── layout.tsx
+│   │   │       └── login/       # DAW-themed login/register page
 │   │   ├── components/
-│   │   │   ├── ui/              # Design primitives (Button, Card, Badge, Toast, etc.)
-│   │   │   ├── studio/          # Studio features (Sidebar, TopNav, PromptBuilder, TrackCard)
+│   │   │   ├── ui/              # Design primitives (Button, Card, Badge, Tabs, Toast, Skeleton)
+│   │   │   ├── studio/          # Sidebar, TopNav, PromptBuilder, TrackCard, CreditWidget
 │   │   │   ├── community/       # CommunityFeed component
 │   │   │   ├── library/         # LibraryView component
-│   │   │   ├── Navbar.tsx       # (legacy) Navigation bar
-│   │   │   ├── ErrorBoundary.tsx
-│   │   │   ├── LoadingSpinner.tsx
 │   │   │   ├── AudioPlayer.tsx
-│   │   │   └── WaveformEditor.tsx # Audacity-style editor
+│   │   │   └── WaveformEditor.tsx
 │   │   └── lib/
-│   │       ├── api.ts           # Typed API client
+│   │       ├── api.ts           # Typed API client (generate, tracks, auth, billing, publish, fork)
 │   │       ├── types.ts         # TypeScript interfaces
+│   │       ├── hooks.ts         # Data fetching + mutation hooks (useTracks, usePublish, useFork, etc.)
+│   │       ├── auth-context.tsx # Auth context provider (login, register, logout, refresh)
+│   │       ├── audio-player.tsx # Global audio player context
 │   │       └── utils.ts         # cn(), formatTime(), formatSize()
 │   └── next.config.ts           # API proxy rewrites + allowedHosts
 ├── .env.example                 # Comprehensive env template
-├── VERIFICATION.md              # Step-by-step verification checklist
 ├── CHANGELOG.md
 └── README.md
 ```
@@ -65,18 +78,27 @@ music-ai-studio/
 |---------|---------------|
 | UI Framework | Next.js 16 + TailwindCSS v4 + framer-motion |
 | Design System | DAW-inspired dark theme (deep charcoal/slate, violet/cyan accents) |
-| UI Primitives | Radix UI base + custom shadcn-style components |
+| UI Primitives | Custom shadcn-style components built from Radix UI + lucide-react |
 | API Validation | Pydantic v2 schemas on all endpoints |
 | Async Processing | Job queue with polling (in-memory, Redis-ready) |
 | Type Safety | TypeScript on frontend, Python type hints on backend |
 | Error Handling | Error boundaries, try-catch, typed API errors, toast notifications |
 | Loading States | Skeleton loaders, LoadingSpinner, progress bars |
-| Auth (ready) | Middleware with session/cookie support, BetterAuth Prisma schema |
-| Database | Prisma schema for users, projects, generations |
-| Payments | Stripe integration hooks in config |
+| Auth | Email/password with JWT sessions, bcrypt password hashing, httponly cookies |
+| Database | Prisma schema for users, projects, generations (in-memory stores for MVP) |
+| Payments | Stripe checkout integration, webhook handler, test mode fallback |
 | Cloud Storage | S3/R2 config in settings |
 
 ## Features
+
+### Authentication
+Email/password registration and login with DAW-themed glass card UI. JWT session tokens are stored in httponly cookies and validated by backend middleware. User menu dropdown in the top navigation bar shows name, email, and sign-out. `useAuth()` React context provides login, register, logout, and auto-session refresh.
+
+### Billing & Credits
+Plan-based credit system with Free (10/mo), Pro (200/mo), and Studio (unlimited) tiers. In test mode (no Stripe keys), selecting a plan instantly grants credits. With Stripe configured, users are redirected to Stripe Checkout and credits are granted via webhook on `checkout.session.completed`.
+
+### Publish & Fork
+Publish completed tracks to share them publicly. Fork tracks or community posts to clone them into your personal library. Library rows show Globe/GlobeOff publish actions. Community cards show a fork button with loading spinner. Track cards on the dashboard include a fork quick action.
 
 ### Studio Dashboard
 Two-column layout with the Advanced Prompt Builder on the left and recent tracks on the right. The Prompt Builder includes toggles for Genre, Mood, Key, BPM, and Structure with an AI-powered Smart Prompt Enhancer. Track cards show cover art, play overlay, stem badges, and quick actions (download MP3/WAV, stems, fork).
@@ -85,7 +107,7 @@ Two-column layout with the Advanced Prompt Builder on the left and recent tracks
 SoundCloud-style explore view with Trending, New, Top, and For You tabs. Each post shows the track title, artist, genre, the original prompt used to generate it, and like/fork/share actions with counts.
 
 ### Library
-Personal track management with All, Completed, Drafts, and Published tab filters. Tracks are displayed in a table-row layout with play buttons, genre/mood tags, export format badges (MP3/WAV/Stems), published status, and inline actions (edit, download, stems, more).
+Personal track management with All, Completed, Drafts, and Published tab filters. Tracks are displayed in a table-row layout with play buttons, genre/mood tags, export format badges, published status, and inline actions (publish, edit, download, stems, more).
 
 ### Generate
 Text-to-music via Meta MusicGen. Submit a prompt, the job is queued asynchronously, and the result appears when complete. Built-in polling with status display.
@@ -134,9 +156,10 @@ See `.env.example` for the complete list covering:
 - Server configuration
 - Database (PostgreSQL)
 - Redis (async queue)
-- Authentication (BetterAuth, Google, GitHub OAuth)
+- Authentication (JWT secret, Google/GitHub OAuth)
 - AI Models (MusicGen size, HuggingFace token)
+- LLM Prompt Enhancement (API key, base URL, model)
 - Cloud Storage (S3/R2)
 - Serverless GPU (Modal)
-- Payments (Stripe)
+- Payments (Stripe secret, webhook secret, price IDs)
 - Rate limiting & credits

@@ -1,42 +1,38 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Pause, Heart, Download, MoreHorizontal, Scissors, Copy } from "lucide-react";
+import { Play, Pause, Heart, Download, MoreHorizontal, Scissors, Copy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { IconButton } from "@/components/ui/button";
 import { useState } from "react";
-
-interface Track {
-  id: string;
-  title: string;
-  artist: string;
-  genre: string;
-  mood: string;
-  bpm: number;
-  key: string;
-  duration: number;
-  createdAt: string;
-  status: "completed" | "processing" | "draft";
-  playCount: number;
-  likes: number;
-  hasStems: boolean;
-}
+import { useAudioPlayer } from "@/lib/audio-player";
+import { useFork } from "@/lib/hooks";
+import { useToast } from "@/components/ui/toast";
+import type { Track } from "@/lib/types";
 
 interface TrackCardProps {
   track: Track;
   variant?: "grid" | "list";
-  onPlay?: () => void;
 }
 
-export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
-  const [playing, setPlaying] = useState(false);
+export function TrackCard({ track, variant = "grid" }: TrackCardProps) {
+  const audioPlayer = useAudioPlayer();
   const [liked, setLiked] = useState(false);
+  const isPlaying = audioPlayer.isCurrentUrl(track.url) && audioPlayer.isPlaying;
+  const { execute: forkTrack, loading: forking } = useFork();
+  const { add: addToast } = useToast();
 
   const handlePlay = () => {
-    setPlaying(!playing);
-    onPlay?.();
+    audioPlayer.toggle(track.url);
+  };
+
+  const handleFork = async () => {
+    try {
+      await forkTrack(track.id);
+      addToast("Track forked!", "Added to your library", "success");
+    } catch {}
   };
 
   if (variant === "list") {
@@ -51,7 +47,7 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
           onClick={handlePlay}
           className="w-10 h-10 rounded-lg bg-gradient-to-br from-daw-accent/30 to-daw-cyan/30 flex items-center justify-center shrink-0 group-hover:from-daw-accent/50 group-hover:to-daw-cyan/50 transition-all"
         >
-          {playing ? (
+          {isPlaying ? (
             <Pause className="w-4 h-4 text-white" />
           ) : (
             <Play className="w-4 h-4 text-white ml-0.5" />
@@ -68,7 +64,7 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
         <div className="hidden md:flex items-center gap-1.5">
           <Badge>{track.genre}</Badge>
           <Badge variant="cyan">{track.mood}</Badge>
-          {track.hasStems && (
+          {track.has_stems && (
             <Badge variant="vocal">Stems</Badge>
           )}
         </div>
@@ -107,7 +103,7 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
             onClick={handlePlay}
             className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-all hover:scale-105"
           >
-            {playing ? (
+            {isPlaying ? (
               <Pause className="w-6 h-6 text-white" />
             ) : (
               <Play className="w-6 h-6 text-white ml-0.5" />
@@ -127,12 +123,12 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
           <p className="text-xs text-daw-text-muted">{track.artist}</p>
         </div>
 
-        <Progress value={playing ? 45 : 0} color="accent" />
+        <Progress value={isPlaying ? 45 : 0} color="accent" />
 
         <div className="flex items-center gap-1.5 flex-wrap">
           <Badge>{track.genre}</Badge>
           <Badge variant="cyan">{track.bpm} BPM</Badge>
-          {track.hasStems && <Badge variant="vocal">Stems</Badge>}
+          {track.has_stems && <Badge variant="vocal">Stems</Badge>}
         </div>
 
         <div className="flex items-center justify-between">
@@ -146,7 +142,7 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
             </span>
             <span className="text-[10px] text-daw-text-dim flex items-center gap-0.5">
               <Play className="w-2.5 h-2.5" />
-              {track.playCount}
+              {track.play_count}
             </span>
           </div>
         </div>
@@ -159,8 +155,12 @@ export function TrackCard({ track, variant = "grid", onPlay }: TrackCardProps) {
           <button className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] text-daw-text-muted hover:bg-daw-surface-3 hover:text-daw-text transition-colors">
             <Scissors className="w-3 h-3" /> Stems
           </button>
-          <button className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] text-daw-text-muted hover:bg-daw-surface-3 hover:text-daw-text transition-colors">
-            <Copy className="w-3 h-3" /> Fork
+          <button
+            onClick={handleFork}
+            disabled={forking}
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] text-daw-text-muted hover:bg-daw-surface-3 hover:text-daw-text transition-colors disabled:opacity-50"
+          >
+            {forking ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />} Fork
           </button>
         </div>
       </div>

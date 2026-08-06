@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_BASIC: str = ""
     STRIPE_PRICE_ID_PRO: str = ""
 
+    # LLM (Prompt Enhancement)
+    USER_LLM_API_KEY: str = ""
+    USER_LLM_BASE_URL: str = "https://api.deepseek.com/v1"
+    USER_LLM_MODEL: str = "deepseek-chat"
+
     # File Storage
     UPLOAD_DIR: str = "./output/uploads"
     EDITS_DIR: str = "./output/edits"

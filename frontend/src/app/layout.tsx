@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Providers } from "./providers";
-import { Sidebar } from "@/components/studio/Sidebar";
-import { TopNav } from "@/components/studio/TopNav";
 import { ToastProvider } from "@/components/ui/toast";
+import { AudioPlayerProvider } from "@/lib/audio-player";
+import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
 const inter = Inter({
@@ -30,15 +30,13 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
         <Providers>
-          <ToastProvider>
-            <div className="flex min-h-screen">
-              <Sidebar />
-              <div className="flex-1 ml-60 flex flex-col">
-                <TopNav />
-                <main className="flex-1 p-6">{children}</main>
-              </div>
-            </div>
-          </ToastProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <AudioPlayerProvider>
+                {children}
+              </AudioPlayerProvider>
+            </ToastProvider>
+          </AuthProvider>
         </Providers>
       </body>
     </html>
