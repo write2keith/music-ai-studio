@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music AI Studio</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Music AI Studio</h1>
+        <p class="subtitle">Generate and separate music with AI</p>
+    </header>
+
+    <main>
+        <section class="card" id="generate-section">
+            <h2>Generate Music</h2>
+            <p class="desc">Text-to-music using Meta MusicGen</p>
+            <form id="generate-form">
+                <div class="field">
+                    <label for="prompt">Prompt</label>
+                    <input type="text" id="prompt" placeholder="e.g., upbeat electronic dance with synth bass and drums" required>
+                </div>
+                <div class="field">
+                    <label for="duration">Duration (seconds)</label>
+                    <input type="range" id="duration" min="5" max="30" value="10" step="1">
+                    <span id="duration-label">10s</span>
+                </div>
+                <button type="submit" id="generate-btn">Generate</button>
+            </form>
+            <div id="generate-result" class="result hidden"></div>
+            <div id="generate-spinner" class="spinner hidden"></div>
+        </section>
+
+        <div class="divider">
+            <span>OR</span>
+        </div>
+
+        <section class="card" id="separate-section">
+            <h2>Separate Stems</h2>
+            <p class="desc">Split audio into vocals, drums, bass, and other using Demucs</p>
+            <form id="separate-form">
+                <div class="field">
+                    <label for="audio-file">Upload Audio (WAV, MP3, FLAC)</label>
+                    <div class="drop-zone" id="drop-zone">
+                        <input type="file" id="audio-file" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
+                        <span id="drop-text">Click to upload or drag &amp; drop</span>
+                        <span id="file-name" class="hidden"></span>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="model-select">Model</label>
+                    <select id="model-select">
+                        <option value="htdemucs">htdemucs (best quality)</option>
+                        <option value="htdemucs_ft">htdemucs_ft (fine-tuned)</option>
+                        <option value="htdemucs_6s">htdemucs_6s (6 stems: +piano+guitar)</option>
+                    </select>
+                </div>
+                <button type="submit" id="separate-btn" disabled>Separate</button>
+            </form>
+            <div id="separate-result" class="result hidden"></div>
+            <div id="separate-spinner" class="spinner hidden"></div>
+        </section>
+
+        <section class="card" id="pipeline-section">
+            <h2>Pipeline: Generate then Separate</h2>
+            <p class="desc">Generate music and automatically split into stems</p>
+            <form id="pipeline-form">
+                <div class="field">
+                    <label for="pipeline-prompt">Prompt</label>
+                    <input type="text" id="pipeline-prompt" placeholder="e.g., chill lo-fi beat with piano and soft drums">
+                </div>
+                <div class="field">
+                    <label for="pipeline-duration">Duration</label>
+                    <input type="range" id="pipeline-duration" min="5" max="30" value="10" step="1">
+                    <span id="pipeline-duration-label">10s</span>
+                </div>
+                <button type="submit" id="pipeline-btn">Generate &amp; Separate</button>
+            </form>
+            <div id="pipeline-result" class="result hidden"></div>
+            <div id="pipeline-spinner" class="spinner hidden"></div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Powered by Meta MusicGen &amp; Demucs | GPU: <span id="gpu-status">checking...</span></p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
