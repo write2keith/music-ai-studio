@@ -307,68 +307,173 @@ button:disabled {
     margin-top: 1rem;
 }
 
-.edit-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-top: 1rem;
-}
-
-.edit-tool {
-    background: var(--bg);
+/* Waveform Editor */
+.waveform-editor {
+    background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.file-loader {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.file-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transport-controls {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.tool-btn {
+    width: auto;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s;
+}
+
+.tool-btn:hover:not(:disabled) {
+    background: #3a3a50;
+}
+
+.tool-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.play-btn {
+    background: var(--accent);
+    color: #fff;
+}
+
+.play-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.time-display {
+    font-size: 0.85rem;
+    font-family: monospace;
+    color: var(--text);
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.selection-info {
+    font-size: 0.78rem;
+    color: var(--success);
+    font-family: monospace;
+}
+
+.waveform-container {
+    position: relative;
+    background: #0a0a10;
+    min-height: 160px;
+    cursor: crosshair;
+}
+
+#waveform {
+    width: 100%;
+    height: 100%;
+}
+
+.region-toolbar {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.edit-actions-bar {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.edit-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.actions-label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-right: 0.25rem;
+}
+
+.action-btn {
+    width: auto;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.78rem;
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s;
+}
+
+.action-btn:hover:not(:disabled) {
+    background: #3a3a50;
+}
+
+.action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* Effects Panel */
+.effects-panel {
     padding: 1rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
 }
 
-.edit-tool-wide {
-    grid-column: 1 / -1;
-}
-
-.edit-tool h3 {
+.effects-panel h3 {
     font-size: 0.9rem;
     margin-bottom: 0.75rem;
     color: var(--accent);
-    font-weight: 600;
-}
-
-.edit-tool .field {
-    margin-bottom: 0.6rem;
-}
-
-.edit-tool .field input[type="number"] {
-    width: 100%;
-    padding: 0.45rem 0.6rem;
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-size: 0.85rem;
-    outline: none;
-}
-
-.edit-tool .field input[type="number"]:focus {
-    border-color: var(--accent);
-}
-
-.edit-tool .field input[type="file"] {
-    width: 100%;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    padding: 0.25rem 0;
-}
-
-.edit-btn {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
-    width: 100%;
-    margin-top: 0.25rem;
 }
 
 .effects-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
 }
 
 .effects-grid .field {
@@ -376,17 +481,112 @@ button:disabled {
 }
 
 .effects-grid .field label {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
 }
 
 .effects-grid .field span {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
     margin-left: 0.25rem;
 }
 
 .effects-grid .field input[type="range"] {
     margin: 0.2rem 0;
+    width: 100%;
+    accent-color: var(--accent);
+}
+
+.edit-btn {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+}
+
+/* Dialogs */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.dialog {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    min-width: 340px;
+    max-width: 90vw;
+}
+
+.dialog h3 {
+    margin-bottom: 0.5rem;
+    color: var(--accent);
+}
+
+.dialog .desc {
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.dialog .field {
+    margin-bottom: 1rem;
+}
+
+.dialog .field input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+
+.dialog .field input[type="file"] {
+    width: 100%;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.dialog-buttons button {
+    flex: 1;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.cancel-btn {
+    background: var(--border) !important;
+}
+
+.cancel-btn:hover {
+    background: #3a3a50 !important;
+}
+
+.result {
+    margin: 1rem;
+    padding: 1rem;
+    background: var(--bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.result h3 {
+    font-size: 0.95rem;
+    margin-bottom: 0.75rem;
+    color: var(--success);
+}
+
+.result audio {
+    width: 100%;
+    margin-bottom: 0.25rem;
 }
 
 footer {
@@ -414,12 +614,17 @@ footer span {
         width: 140px;
     }
 
-    .edit-grid {
-        grid-template-columns: 1fr;
+    .editor-toolbar {
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
     }
 
     .effects-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .edit-actions-bar {
+        gap: 0.75rem;
     }
 
     .tabs {

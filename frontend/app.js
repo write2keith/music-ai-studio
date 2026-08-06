@@ -1,10 +1,19 @@
+import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
+import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
+
+let wavesurfer = null;
+let regionsPlugin = null;
+let activeRegion = null;
+let regionStart = null;
+let regionEnd = null;
+
 document.addEventListener("DOMContentLoaded", function () {
     checkHealth();
     setupTabs();
     setupGenerate();
     setupSeparate();
     setupPipeline();
-    setupEdit();
+    setupEditor();
 });
 
 function showSpinner(id) {
@@ -24,14 +33,15 @@ function hideResult(id) {
 }
 
 function setButtonDisabled(btnId, disabled) {
-    document.getElementById(btnId).disabled = disabled;
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = disabled;
 }
 
 async function checkHealth() {
     try {
         const res = await fetch("/api/model-info");
         const data = await res.json();
-        var statusEl = document.getElementById("gpu-status");
+        const statusEl = document.getElementById("gpu-status");
         if (data.gpu_available) {
             statusEl.textContent = data.gpu_name;
             statusEl.style.color = "var(--success)";
@@ -45,16 +55,16 @@ async function checkHealth() {
 }
 
 function renderAudioPlayer(url, label) {
-    var div = document.createElement("div");
+    const div = document.createElement("div");
     div.style.marginTop = "0.75rem";
-    var title = document.createElement("p");
+    const title = document.createElement("p");
     title.textContent = label;
     title.style.cssText = "font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;";
-    var audio = document.createElement("audio");
+    const audio = document.createElement("audio");
     audio.controls = true;
     audio.src = url;
     audio.style.width = "100%";
-    var dl = document.createElement("a");
+    const dl = document.createElement("a");
     dl.href = url;
     dl.download = "";
     dl.className = "download-link";
@@ -65,35 +75,54 @@ function renderAudioPlayer(url, label) {
     return div;
 }
 
-function setupGenerate() {
-    var form = document.getElementById("generate-form");
-    var durationInput = document.getElementById("duration");
-    var durationLabel = document.getElementById("duration-label");
+function setupTabs() {
+    const tabs = document.querySelectorAll(".tab");
+    const panels = document.querySelectorAll(".tab-panel");
+    tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+            const target = this.getAttribute("data-tab");
+            tabs.forEach(function (t) { t.classList.remove("active"); });
+            panels.forEach(function (p) { p.classList.remove("active"); });
+            this.classList.add("active");
+            const panel = document.getElementById("tab-" + target);
+            if (panel) panel.classList.add("active");
+        });
+    });
+}
 
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+}
+
+function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return "--:--.-";
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return String(m).padStart(2, "0") + ":" + s.toFixed(1).padStart(4, "0");
+}
+
+function setupGenerate() {
+    const form = document.getElementById("generate-form");
+    const durationInput = document.getElementById("duration");
+    const durationLabel = document.getElementById("duration-label");
     durationInput.addEventListener("input", function () {
         durationLabel.textContent = this.value + "s";
     });
-
     form.addEventListener("submit", async function (e) {
         e.preventDefault();
-        var btn = document.getElementById("generate-btn");
-        var resultEl = document.getElementById("generate-result");
-
+        const resultEl = document.getElementById("generate-result");
         setButtonDisabled("generate-btn", true);
         hideResult("generate-result");
         showSpinner("generate-spinner");
-
-        var formData = new FormData();
+        const formData = new FormData();
         formData.append("prompt", document.getElementById("prompt").value);
         formData.append("duration", durationInput.value);
-
         try {
-            var res = await fetch("/api/generate", { method: "POST", body: formData });
-            if (!res.ok) {
-                var err = await res.json();
-                throw new Error(err.detail || "Generation failed");
-            }
-            var data = await res.json();
+            const res = await fetch("/api/generate", { method: "POST", body: formData });
+            if (!res.ok) { const err = await res.json(); throw new Error(err.detail || "Generation failed"); }
+            const data = await res.json();
             resultEl.innerHTML = "<h3>Generated</h3>";
             resultEl.appendChild(renderAudioPlayer(data.url, "MusicGen Output"));
             showResult("generate-result");
@@ -108,67 +137,38 @@ function setupGenerate() {
 }
 
 function setupSeparate() {
-    var dropZone = document.getElementById("drop-zone");
-    var fileInput = document.getElementById("audio-file");
-    var dropText = document.getElementById("drop-text");
-    var fileName = document.getElementById("file-name");
-
-    dropZone.addEventListener("click", function () {
-        fileInput.click();
-    });
-
-    dropZone.addEventListener("dragover", function (e) {
-        e.preventDefault();
-        dropZone.classList.add("drag-over");
-    });
-
-    dropZone.addEventListener("dragleave", function () {
-        dropZone.classList.remove("drag-over");
-    });
-
+    const dropZone = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("audio-file");
+    const dropText = document.getElementById("drop-text");
+    const fileName = document.getElementById("file-name");
+    dropZone.addEventListener("click", function () { fileInput.click(); });
+    dropZone.addEventListener("dragover", function (e) { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", function () { dropZone.classList.remove("drag-over"); });
     dropZone.addEventListener("drop", function (e) {
         e.preventDefault();
         dropZone.classList.remove("drag-over");
-        var files = e.dataTransfer.files;
-        if (files.length > 0) {
-            fileInput.files = files;
-            updateFileDisplay(files[0]);
-        }
+        if (e.dataTransfer.files.length > 0) { fileInput.files = e.dataTransfer.files; updateFileDisplay(e.dataTransfer.files[0]); }
     });
-
-    fileInput.addEventListener("change", function () {
-        if (this.files.length > 0) {
-            updateFileDisplay(this.files[0]);
-        }
-    });
-
+    fileInput.addEventListener("change", function () { if (this.files.length > 0) updateFileDisplay(this.files[0]); });
     function updateFileDisplay(file) {
         dropText.classList.add("hidden");
         fileName.textContent = file.name + " (" + formatSize(file.size) + ")";
         fileName.classList.remove("hidden");
         setButtonDisabled("separate-btn", false);
     }
-
     document.getElementById("separate-form").addEventListener("submit", async function (e) {
         e.preventDefault();
-        var btn = document.getElementById("separate-btn");
-        var resultEl = document.getElementById("separate-result");
-
+        const resultEl = document.getElementById("separate-result");
         setButtonDisabled("separate-btn", true);
         hideResult("separate-result");
         showSpinner("separate-spinner");
-
-        var formData = new FormData();
+        const formData = new FormData();
         formData.append("file", fileInput.files[0]);
         formData.append("model", document.getElementById("model-select").value);
-
         try {
-            var res = await fetch("/api/separate", { method: "POST", body: formData });
-            if (!res.ok) {
-                var err = await res.json();
-                throw new Error(err.detail || "Separation failed");
-            }
-            var data = await res.json();
+            const res = await fetch("/api/separate", { method: "POST", body: formData });
+            if (!res.ok) { const err = await res.json(); throw new Error(err.detail || "Separation failed"); }
+            const data = await res.json();
             renderStems(resultEl, data.stems);
             showResult("separate-result");
         } catch (err) {
@@ -182,49 +182,34 @@ function setupSeparate() {
 }
 
 function setupPipeline() {
-    var durationInput = document.getElementById("pipeline-duration");
-    var durationLabel = document.getElementById("pipeline-duration-label");
-
-    durationInput.addEventListener("input", function () {
-        durationLabel.textContent = this.value + "s";
-    });
-
+    const durationInput = document.getElementById("pipeline-duration");
+    const durationLabel = document.getElementById("pipeline-duration-label");
+    durationInput.addEventListener("input", function () { durationLabel.textContent = this.value + "s"; });
     document.getElementById("pipeline-form").addEventListener("submit", async function (e) {
         e.preventDefault();
-        var btn = document.getElementById("pipeline-btn");
-        var resultEl = document.getElementById("pipeline-result");
-
+        const resultEl = document.getElementById("pipeline-result");
         setButtonDisabled("pipeline-btn", true);
         hideResult("pipeline-result");
         showSpinner("pipeline-spinner");
-
-        var prompt = document.getElementById("pipeline-prompt").value;
-
+        const prompt = document.getElementById("pipeline-prompt").value;
         try {
-            var genFormData = new FormData();
+            const genFormData = new FormData();
             genFormData.append("prompt", prompt);
             genFormData.append("duration", durationInput.value);
-
             resultEl.innerHTML = '<p class="loading-text">Step 1/2: Generating music...</p>';
             showResult("pipeline-result");
-
-            var genRes = await fetch("/api/generate", { method: "POST", body: genFormData });
+            const genRes = await fetch("/api/generate", { method: "POST", body: genFormData });
             if (!genRes.ok) throw new Error("Generation failed");
-            var genData = await genRes.json();
-
+            const genData = await genRes.json();
             resultEl.innerHTML = '<p class="loading-text">Step 2/2: Separating stems...</p>';
-
-            var audioRes = await fetch(genData.url);
-            var audioBlob = await audioRes.blob();
-
-            var sepFormData = new FormData();
+            const audioRes = await fetch(genData.url);
+            const audioBlob = await audioRes.blob();
+            const sepFormData = new FormData();
             sepFormData.append("file", audioBlob, "generated.wav");
             sepFormData.append("model", "htdemucs");
-
-            var sepRes = await fetch("/api/separate", { method: "POST", body: sepFormData });
+            const sepRes = await fetch("/api/separate", { method: "POST", body: sepFormData });
             if (!sepRes.ok) throw new Error("Separation failed");
-            var sepData = await sepRes.json();
-
+            const sepData = await sepRes.json();
             resultEl.innerHTML = "<h3>Generated & Separated</h3>";
             resultEl.appendChild(renderAudioPlayer(genData.url, "Original (MusicGen)"));
             renderStems(resultEl, sepData.stems);
@@ -240,260 +225,427 @@ function setupPipeline() {
 }
 
 function renderStems(container, stems) {
-    var list = document.createElement("ul");
+    const list = document.createElement("ul");
     list.className = "stem-list";
-
-    var names = Object.keys(stems).sort();
-    for (var i = 0; i < names.length; i++) {
-        var name = names[i];
-        var url = stems[name];
-
-        var li = document.createElement("li");
-        var nameSpan = document.createElement("span");
+    const names = Object.keys(stems).sort();
+    for (let i = 0; i < names.length; i++) {
+        const name = names[i];
+        const url = stems[name];
+        const li = document.createElement("li");
+        const nameSpan = document.createElement("span");
         nameSpan.className = "stem-name";
         nameSpan.textContent = name;
-
-        var audio = document.createElement("audio");
+        const audio = document.createElement("audio");
         audio.controls = true;
         audio.src = url;
-
-        var dl = document.createElement("a");
+        const dl = document.createElement("a");
         dl.href = url;
         dl.download = name + ".wav";
         dl.className = "download-link";
         dl.textContent = "Download";
-
         li.appendChild(nameSpan);
         li.appendChild(audio);
         li.appendChild(dl);
         list.appendChild(li);
     }
-
     container.appendChild(list);
 }
 
-function formatSize(bytes) {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / 1048576).toFixed(1) + " MB";
+// ===== WAVEFORM EDITOR =====
+
+function setupEditor() {
+    setupEditorSliders();
+    setupEditorButtons();
+    setupDialogs();
 }
 
-function setupTabs() {
-    var tabs = document.querySelectorAll(".tab");
-    var panels = document.querySelectorAll(".tab-panel");
-
-    tabs.forEach(function (tab) {
-        tab.addEventListener("click", function () {
-            var target = this.getAttribute("data-tab");
-
-            tabs.forEach(function (t) { t.classList.remove("active"); });
-            panels.forEach(function (p) { p.classList.remove("active"); });
-
-            this.classList.add("active");
-            document.getElementById("tab-" + target).classList.add("active");
-        });
-    });
-}
-
-function setupEdit() {
-    setupEditDropZone();
-    setupEditSliders();
-    setupEditButtons();
-}
-
-function setupEditDropZone() {
-    var dropZone = document.getElementById("edit-drop-zone");
-    var fileInput = document.getElementById("edit-audio-file");
-    var dropText = document.getElementById("edit-drop-text");
-    var fileName = document.getElementById("edit-file-name");
-
-    dropZone.addEventListener("click", function () { fileInput.click(); });
-
-    dropZone.addEventListener("dragover", function (e) {
-        e.preventDefault();
-        dropZone.classList.add("drag-over");
-    });
-
-    dropZone.addEventListener("dragleave", function () {
-        dropZone.classList.remove("drag-over");
-    });
-
-    dropZone.addEventListener("drop", function (e) {
-        e.preventDefault();
-        dropZone.classList.remove("drag-over");
-        if (e.dataTransfer.files.length > 0) {
-            fileInput.files = e.dataTransfer.files;
-            dropText.classList.add("hidden");
-            fileName.textContent = e.dataTransfer.files[0].name + " (" + formatSize(e.dataTransfer.files[0].size) + ")";
-            fileName.classList.remove("hidden");
-        }
-    });
-
-    fileInput.addEventListener("change", function () {
-        if (this.files.length > 0) {
-            dropText.classList.add("hidden");
-            fileName.textContent = this.files[0].name + " (" + formatSize(this.files[0].size) + ")";
-            fileName.classList.remove("hidden");
-        }
-    });
-}
-
-function setupEditSliders() {
-    var sliders = {
-        "volume-gain": "volume-gain-label",
-        "normalize-target": "normalize-target-label",
-        "speed-factor": "speed-factor-label",
-        "fx-reverb-room": "fx-reverb-room-label",
-        "fx-reverb-wet": "fx-reverb-wet-label",
-        "fx-delay-time": "fx-delay-time-label",
-        "fx-delay-mix": "fx-delay-mix-label",
-        "fx-delay-feedback": "fx-delay-feedback-label",
-        "fx-eq-low": "fx-eq-low-label",
-        "fx-eq-mid": "fx-eq-mid-label",
-        "fx-eq-high": "fx-eq-high-label",
-        "fx-comp-thresh": "fx-comp-thresh-label",
-        "fx-comp-ratio": "fx-comp-ratio-label",
-        "fx-gain": "fx-gain-label",
-    };
-
-    Object.keys(sliders).forEach(function (id) {
-        var slider = document.getElementById(id);
-        var label = document.getElementById(sliders[id]);
-        if (!slider || !label) return;
-
-        slider.addEventListener("input", function () {
-            var val = parseFloat(this.value);
-            if (id === "fx-reverb-room" || id === "fx-reverb-wet" || id === "fx-delay-mix" || id === "fx-delay-feedback") {
-                label.textContent = val + "%";
-            } else if (id === "fx-delay-time") {
-                label.textContent = val.toFixed(2) + "s";
-            } else if (id === "speed-factor") {
-                label.textContent = val.toFixed(2) + "x";
-            } else if (id === "fx-comp-thresh") {
-                label.textContent = val === 0 ? "Off" : val + " dB";
-            } else if (id === "fx-comp-ratio") {
-                label.textContent = val.toFixed(1) + ":1";
-            } else {
-                label.textContent = val + " dB";
-            }
-        });
-    });
-}
-
-function setupEditButtons() {
-    var buttons = document.querySelectorAll(".edit-btn");
-    buttons.forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var action = this.getAttribute("data-action");
-            handleEditAction(action);
-        });
-    });
-}
-
-function getEditFile() {
-    var input = document.getElementById("edit-audio-file");
-    if (!input.files || input.files.length === 0) {
-        alert("Please upload an audio file first");
-        return null;
+function initWavesurfer(file) {
+    if (wavesurfer) {
+        wavesurfer.destroy();
     }
-    return input.files[0];
+
+    const url = URL.createObjectURL(file);
+
+    regionsPlugin = RegionsPlugin.create();
+    activeRegion = null;
+    regionStart = null;
+    regionEnd = null;
+
+    wavesurfer = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "#4a4a6a",
+        progressColor: "#7c5cfc",
+        cursorColor: "#fff",
+        cursorWidth: 1,
+        height: 180,
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        responsive: true,
+        normalize: true,
+        plugins: [regionsPlugin],
+    });
+
+    wavesurfer.load(url);
+
+    wavesurfer.on("ready", function () {
+        document.getElementById("editor-file-label").textContent = file.name;
+        document.getElementById("editor-duration").textContent = formatTime(wavesurfer.getDuration());
+        setButtonDisabled("editor-play-btn", false);
+        setButtonDisabled("editor-stop-btn", false);
+        setButtonDisabled("set-region-start-btn", false);
+        setButtonDisabled("set-region-end-btn", false);
+        setButtonDisabled("clear-region-btn", false);
+        updateSelectionButtons();
+    });
+
+    wavesurfer.on("audioprocess", function () {
+        document.getElementById("editor-current-time").textContent = formatTime(wavesurfer.getCurrentTime());
+    });
+
+    wavesurfer.on("interaction", function () {
+        document.getElementById("editor-current-time").textContent = formatTime(wavesurfer.getCurrentTime());
+    });
+
+    wavesurfer.on("finish", function () {
+        setButtonDisabled("editor-play-btn", false);
+    });
+
+    // Region creation via click-and-drag on waveform
+    setupRegionInteraction();
 }
 
-async function handleEditAction(action) {
-    var resultEl = document.getElementById("edit-result");
+function setupRegionInteraction() {
+    let isDragging = false;
+    let dragStart = 0;
+
+    const container = document.querySelector(".waveform-container");
+
+    container.addEventListener("mousedown", function (e) {
+        if (!wavesurfer) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const duration = wavesurfer.getDuration();
+        if (!duration) return;
+        const time = (x / rect.width) * duration;
+        isDragging = true;
+        dragStart = time;
+
+        clearRegion();
+
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+    });
+
+    function onMouseMove(e) {
+        if (!isDragging || !wavesurfer) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const duration = wavesurfer.getDuration();
+        if (!duration) return;
+        const time = Math.max(0, Math.min(duration, (x / rect.width) * duration));
+
+        clearRegion();
+
+        const start = Math.min(dragStart, time);
+        const end = Math.max(dragStart, time);
+
+        if (end - start > 0.01) {
+            activeRegion = regionsPlugin.addRegion({
+                start: start,
+                end: end,
+                color: "rgba(124, 92, 252, 0.25)",
+                drag: true,
+                resize: true,
+            });
+
+            activeRegion.on("update-end", function () {
+                regionStart = activeRegion.start;
+                regionEnd = activeRegion.end;
+                updateSelectionDisplay();
+                updateSelectionButtons();
+            });
+
+            activeRegion.on("update", function () {
+                regionStart = activeRegion.start;
+                regionEnd = activeRegion.end;
+                updateSelectionDisplay();
+                updateSelectionButtons();
+            });
+
+            regionStart = start;
+            regionEnd = end;
+            updateSelectionDisplay();
+            updateSelectionButtons();
+            setButtonDisabled("set-region-start-btn", true);
+            setButtonDisabled("set-region-end-btn", true);
+        }
+    }
+
+    function onMouseUp() {
+        isDragging = false;
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+    }
+
+    document.getElementById("set-region-start-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        regionStart = wavesurfer.getCurrentTime();
+        updateSelectionDisplay();
+        if (regionEnd !== null && regionEnd > regionStart + 0.01) {
+            createRegionFromPoints();
+        }
+    });
+
+    document.getElementById("set-region-end-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        regionEnd = wavesurfer.getCurrentTime();
+        updateSelectionDisplay();
+        if (regionStart !== null && regionEnd > regionStart + 0.01) {
+            createRegionFromPoints();
+        }
+    });
+
+    document.getElementById("clear-region-btn").addEventListener("click", function () {
+        clearRegion();
+    });
+}
+
+function createRegionFromPoints() {
+    if (!regionsPlugin || regionStart === null || regionEnd === null) return;
+    const start = Math.min(regionStart, regionEnd);
+    const end = Math.max(regionStart, regionEnd);
+
+    clearRegion();
+
+    activeRegion = regionsPlugin.addRegion({
+        start: start,
+        end: end,
+        color: "rgba(124, 92, 252, 0.25)",
+        drag: true,
+        resize: true,
+    });
+
+    activeRegion.on("update-end", function () {
+        regionStart = activeRegion.start;
+        regionEnd = activeRegion.end;
+        updateSelectionDisplay();
+        updateSelectionButtons();
+    });
+
+    activeRegion.on("update", function () {
+        regionStart = activeRegion.start;
+        regionEnd = activeRegion.end;
+        updateSelectionDisplay();
+        updateSelectionButtons();
+    });
+
+    regionStart = start;
+    regionEnd = end;
+    updateSelectionDisplay();
+    updateSelectionButtons();
+}
+
+function clearRegion() {
+    if (regionsPlugin) {
+        regionsPlugin.clearRegions();
+    }
+    activeRegion = null;
+    regionStart = null;
+    regionEnd = null;
+    updateSelectionDisplay();
+    updateSelectionButtons();
+}
+
+function updateSelectionDisplay() {
+    document.getElementById("selection-start").textContent = regionStart !== null ? formatTime(regionStart) : "--";
+    document.getElementById("selection-end").textContent = regionEnd !== null ? formatTime(regionEnd) : "--";
+}
+
+function updateSelectionButtons() {
+    const hasSelection = regionStart !== null && regionEnd !== null && Math.abs(regionEnd - regionStart) > 0.01;
+    setButtonDisabled("action-trim", !hasSelection);
+    setButtonDisabled("action-crop", !hasSelection);
+    setButtonDisabled("action-fade-in-sel", !hasSelection);
+    setButtonDisabled("action-fade-out-sel", !hasSelection);
+    document.getElementById("clear-region-btn").disabled = !activeRegion && regionStart === null;
+}
+
+function setupEditorButtons() {
+    // File load
+    document.getElementById("editor-load-btn").addEventListener("click", function () {
+        document.getElementById("editor-file-input").click();
+    });
+
+    document.getElementById("editor-file-input").addEventListener("change", function () {
+        if (this.files.length > 0) {
+            loadEditorFile(this.files[0]);
+        }
+    });
+
+    // Transport
+    document.getElementById("editor-play-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        wavesurfer.playPause();
+        const playing = wavesurfer.isPlaying();
+        this.innerHTML = playing ? "&#10074;&#10074; Pause" : "&#9654; Play";
+    });
+
+    document.getElementById("editor-stop-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        wavesurfer.stop();
+        document.getElementById("editor-play-btn").innerHTML = "&#9654; Play";
+    });
+
+    document.getElementById("editor-zoom-in-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        const current = wavesurfer.options.minPxPerSec || 20;
+        wavesurfer.zoom(Math.min(current * 1.5, 1000));
+    });
+
+    document.getElementById("editor-zoom-out-btn").addEventListener("click", function () {
+        if (!wavesurfer) return;
+        const current = wavesurfer.options.minPxPerSec || 20;
+        wavesurfer.zoom(Math.max(current / 1.5, 1));
+    });
+
+    // Action buttons
+    document.getElementById("action-trim").addEventListener("click", function () {
+        handleEditorAction("trim");
+    });
+
+    document.getElementById("action-crop").addEventListener("click", function () {
+        handleEditorAction("crop");
+    });
+
+    document.getElementById("action-fade-in-sel").addEventListener("click", function () {
+        handleEditorAction("fade-in-sel");
+    });
+
+    document.getElementById("action-fade-out-sel").addEventListener("click", function () {
+        handleEditorAction("fade-out-sel");
+    });
+
+    document.querySelectorAll(".action-btn[data-action]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            const action = this.getAttribute("data-action");
+            if (action === "normalize") handleEditorAction("normalize");
+            if (action === "speed") showSpeedDialog();
+            if (action === "merge") showMergeDialog();
+        });
+    });
+
+    document.querySelectorAll(".edit-btn[data-action]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            handleEditorAction("effects");
+        });
+    });
+
+    // Effects toggle
+    document.getElementById("action-effects-toggle").addEventListener("click", function () {
+        const panel = document.getElementById("effects-panel");
+        panel.classList.toggle("hidden");
+    });
+}
+
+function loadEditorFile(file) {
+    hideResult("edit-result");
+    initWavesurfer(file);
+}
+
+function getEditorFile() {
+    const input = document.getElementById("editor-file-input");
+    const altInput = document.getElementById("edit-audio-file");
+    if (input.files && input.files.length > 0) return input.files[0];
+    if (altInput.files && altInput.files.length > 0) return altInput.files[0];
+    return null;
+}
+
+async function handleEditorAction(action) {
+    const resultEl = document.getElementById("edit-result");
     hideResult("edit-result");
     showSpinner("edit-spinner");
 
-    var formData = new FormData();
-    var url = "";
+    const file = getEditorFile();
+    if (!file && action !== "merge") {
+        alert("Please load a file first");
+        hideSpinner("edit-spinner");
+        return;
+    }
+
+    const formData = new FormData();
+    let url = "/api/edit/";
 
     try {
         switch (action) {
-        case "trim": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
+        case "trim":
             formData.append("file", file);
-            formData.append("start_sec", document.getElementById("trim-start").value || "0");
-            formData.append("end_sec", document.getElementById("trim-end").value || "10");
-            url = "/api/edit/trim";
+            formData.append("start_sec", "0");
+            formData.append("end_sec", String(regionStart || 0));
+            url += "trim";
             break;
-        }
-        case "fade": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
-            formData.append("file", file);
-            formData.append("fade_in", document.getElementById("fade-in").value || "0");
-            formData.append("fade_out", document.getElementById("fade-out").value || "0");
-            url = "/api/edit/fade";
-            break;
-        }
-        case "volume": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
-            formData.append("file", file);
-            formData.append("gain_db", document.getElementById("volume-gain").value);
-            url = "/api/edit/volume";
-            break;
-        }
-        case "normalize": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
-            formData.append("file", file);
-            formData.append("target_db", document.getElementById("normalize-target").value);
-            url = "/api/edit/normalize";
-            break;
-        }
-        case "speed": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
-            formData.append("file", file);
-            formData.append("factor", document.getElementById("speed-factor").value);
-            url = "/api/edit/speed";
-            break;
-        }
-        case "merge": {
-            var mergeInput = document.getElementById("merge-files");
-            if (!mergeInput.files || mergeInput.files.length < 2) {
-                alert("Select at least 2 files to merge");
-                hideSpinner("edit-spinner");
-                return;
+        case "crop":
+            if (regionStart === null || regionEnd === null) {
+                throw new Error("Make a selection first");
             }
-            for (var i = 0; i < mergeInput.files.length; i++) {
-                formData.append("files", mergeInput.files[i]);
-            }
-            url = "/api/edit/merge";
-            break;
-        }
-        case "effects": {
-            var file = getEditFile();
-            if (!file) { hideSpinner("edit-spinner"); return; }
             formData.append("file", file);
-            formData.append("reverb_room_size", document.getElementById("fx-reverb-room").value / 100);
-            formData.append("reverb_wet", document.getElementById("fx-reverb-wet").value / 100);
+            formData.append("start_sec", String(regionStart));
+            formData.append("end_sec", String(regionEnd));
+            url += "trim";
+            break;
+        case "fade-in-sel":
+            formData.append("file", file);
+            if (regionStart !== null && regionEnd !== null) {
+                formData.append("start_sec", String(regionStart));
+                formData.append("end_sec", String(regionEnd));
+            }
+            formData.append("fade_in", String(1.0));
+            formData.append("fade_out", "0");
+            url += "fade";
+            break;
+        case "fade-out-sel":
+            formData.append("file", file);
+            if (regionStart !== null && regionEnd !== null) {
+                formData.append("start_sec", String(regionStart));
+                formData.append("end_sec", String(regionEnd));
+            }
+            formData.append("fade_in", "0");
+            formData.append("fade_out", String(1.0));
+            url += "fade";
+            break;
+        case "normalize":
+            formData.append("file", file);
+            formData.append("target_db", "-1.0");
+            url += "normalize";
+            break;
+        case "effects":
+            formData.append("file", file);
+            formData.append("reverb_room_size", String((parseFloat(document.getElementById("fx-reverb-room").value) || 0) / 100));
+            formData.append("reverb_wet", String((parseFloat(document.getElementById("fx-reverb-wet").value) || 0) / 100));
             formData.append("delay_seconds", document.getElementById("fx-delay-time").value);
-            formData.append("delay_feedback", document.getElementById("fx-delay-feedback").value / 100);
-            formData.append("delay_mix", document.getElementById("fx-delay-mix").value / 100);
+            formData.append("delay_feedback", String((parseFloat(document.getElementById("fx-delay-feedback").value) || 0) / 100));
+            formData.append("delay_mix", String((parseFloat(document.getElementById("fx-delay-mix").value) || 0) / 100));
             formData.append("eq_low_gain", document.getElementById("fx-eq-low").value);
             formData.append("eq_mid_gain", document.getElementById("fx-eq-mid").value);
             formData.append("eq_high_gain", document.getElementById("fx-eq-high").value);
             formData.append("compressor_threshold", document.getElementById("fx-comp-thresh").value);
             formData.append("compressor_ratio", document.getElementById("fx-comp-ratio").value);
             formData.append("gain_db", document.getElementById("fx-gain").value);
-            url = "/api/edit/effects";
+            url += "effects";
             break;
-        }
+        default:
+            throw new Error("Unknown action: " + action);
         }
 
-        var res = await fetch(url, { method: "POST", body: formData });
+        const res = await fetch(url, { method: "POST", body: formData });
         if (!res.ok) {
-            var err = await res.json();
+            const err = await res.json();
             throw new Error(err.detail || "Edit failed");
         }
-        var data = await res.json();
+        const data = await res.json();
 
         resultEl.innerHTML = "<h3>Edit Complete</h3>";
-        var capAction = action.charAt(0).toUpperCase() + action.slice(1);
-        resultEl.appendChild(renderAudioPlayer(data.url, capAction + " Result"));
+        resultEl.appendChild(renderAudioPlayer(data.url, action.charAt(0).toUpperCase() + action.slice(1) + " Result"));
         showResult("edit-result");
     } catch (err) {
         resultEl.innerHTML = '<p class="error-msg">Error: ' + err.message + "</p>";
@@ -501,4 +653,147 @@ async function handleEditAction(action) {
     } finally {
         hideSpinner("edit-spinner");
     }
+}
+
+function setupEditorSliders() {
+    const sliders = {
+        "fx-reverb-room": ["fx-reverb-room-label", "%"],
+        "fx-reverb-wet": ["fx-reverb-wet-label", "%"],
+        "fx-delay-time": ["fx-delay-time-label", "s", 2],
+        "fx-delay-mix": ["fx-delay-mix-label", "%"],
+        "fx-delay-feedback": ["fx-delay-feedback-label", "%"],
+        "fx-eq-low": ["fx-eq-low-label", " dB"],
+        "fx-eq-mid": ["fx-eq-mid-label", " dB"],
+        "fx-eq-high": ["fx-eq-high-label", " dB"],
+        "fx-comp-thresh": ["fx-comp-thresh-label", " dB", 0, "Off"],
+        "fx-comp-ratio": ["fx-comp-ratio-label", ":1", 1],
+        "fx-gain": ["fx-gain-label", " dB"],
+    };
+
+    Object.keys(sliders).forEach(function (id) {
+        const slider = document.getElementById(id);
+        const [labelId, suffix, precision, zeroText] = sliders[id];
+        const label = document.getElementById(labelId);
+        if (!slider || !label) return;
+
+        slider.addEventListener("input", function () {
+            const val = parseFloat(this.value);
+            if (zeroText && val === 0) {
+                label.textContent = zeroText;
+            } else {
+                const p = precision !== undefined ? precision : (Number.isInteger(val) ? 0 : 1);
+                label.textContent = val.toFixed(p) + (suffix || "");
+            }
+        });
+    });
+}
+
+function showSpeedDialog() {
+    const dlg = document.getElementById("speed-dialog");
+    dlg.classList.remove("hidden");
+
+    const slider = document.getElementById("speed-factor-dlg");
+    const label = document.getElementById("speed-factor-dlg-label");
+    slider.addEventListener("input", function () {
+        label.textContent = parseFloat(this.value).toFixed(2) + "x";
+    });
+
+    document.getElementById("speed-apply-btn").onclick = async function () {
+        dlg.classList.add("hidden");
+        const file = getEditorFile();
+        if (!file) { alert("Load a file first"); return; }
+        const resultEl = document.getElementById("edit-result");
+        hideResult("edit-result");
+        showSpinner("edit-spinner");
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("factor", slider.value);
+            const res = await fetch("/api/edit/speed", { method: "POST", body: formData });
+            if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+            const data = await res.json();
+            resultEl.innerHTML = "<h3>Speed Changed</h3>";
+            resultEl.appendChild(renderAudioPlayer(data.url, "Speed " + parseFloat(slider.value).toFixed(2) + "x"));
+            showResult("edit-result");
+        } catch (err) {
+            resultEl.innerHTML = '<p class="error-msg">Error: ' + err.message + "</p>";
+            showResult("edit-result");
+        } finally {
+            hideSpinner("edit-spinner");
+        }
+    };
+
+    document.getElementById("speed-cancel-btn").onclick = function () {
+        dlg.classList.add("hidden");
+    };
+}
+
+function showMergeDialog() {
+    const dlg = document.getElementById("merge-dialog");
+    dlg.classList.remove("hidden");
+
+    document.getElementById("merge-apply-btn").onclick = async function () {
+        const input = document.getElementById("merge-files-input");
+        if (!input.files || input.files.length < 2) {
+            alert("Select at least 2 files");
+            return;
+        }
+        dlg.classList.add("hidden");
+        const resultEl = document.getElementById("edit-result");
+        hideResult("edit-result");
+        showSpinner("edit-spinner");
+        try {
+            const formData = new FormData();
+            for (let i = 0; i < input.files.length; i++) {
+                formData.append("files", input.files[i]);
+            }
+            const res = await fetch("/api/edit/merge", { method: "POST", body: formData });
+            if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+            const data = await res.json();
+            resultEl.innerHTML = "<h3>Merged</h3>";
+            resultEl.appendChild(renderAudioPlayer(data.url, "Merged Track"));
+            showResult("edit-result");
+        } catch (err) {
+            resultEl.innerHTML = '<p class="error-msg">Error: ' + err.message + "</p>";
+            showResult("edit-result");
+        } finally {
+            hideSpinner("edit-spinner");
+        }
+    };
+
+    document.getElementById("merge-cancel-btn").onclick = function () {
+        dlg.classList.add("hidden");
+    };
+}
+
+function setupDialogs() {
+    // Close dialogs on overlay click
+    document.querySelectorAll(".dialog-overlay").forEach(function (overlay) {
+        overlay.addEventListener("click", function (e) {
+            if (e.target === overlay) {
+                overlay.classList.add("hidden");
+            }
+        });
+    });
+
+    // Drag-and-drop on the waveform area for file loading
+    const container = document.querySelector(".waveform-container");
+    if (!container) return;
+
+    container.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        container.style.border = "2px solid var(--accent)";
+    });
+
+    container.addEventListener("dragleave", function () {
+        container.style.border = "none";
+    });
+
+    container.addEventListener("drop", function (e) {
+        e.preventDefault();
+        container.style.border = "none";
+        if (e.dataTransfer.files.length > 0) {
+            loadEditorFile(e.dataTransfer.files[0]);
+        }
+    });
 }
