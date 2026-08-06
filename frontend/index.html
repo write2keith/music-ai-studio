@@ -93,150 +93,156 @@
             </div>
         </section>
 
-        <!-- EDIT TAB -->
+        <!-- EDIT TAB - Waveform Editor -->
         <section class="tab-panel" id="tab-edit">
-            <div class="card">
-                <h2>Edit Audio</h2>
-                <p class="desc">Trim, fade, adjust, and apply effects</p>
-
-                <div class="field">
-                    <label>Upload Audio to Edit</label>
-                    <div class="drop-zone" id="edit-drop-zone">
+            <div class="waveform-editor">
+                <!-- Toolbar -->
+                <div class="editor-toolbar">
+                    <div class="file-loader">
+                        <button id="editor-load-btn" class="tool-btn">Open File</button>
+                        <input type="file" id="editor-file-input" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
+                        <span id="editor-file-label" class="file-label">No file loaded</span>
                         <input type="file" id="edit-audio-file" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
-                        <span id="edit-drop-text">Click to upload or drag &amp; drop</span>
-                        <span id="edit-file-name" class="hidden"></span>
+                    </div>
+                    <div class="transport-controls">
+                        <button id="editor-play-btn" class="tool-btn play-btn" disabled>&#9654; Play</button>
+                        <button id="editor-stop-btn" class="tool-btn" disabled>&#9632; Stop</button>
+                        <button id="editor-zoom-in-btn" class="tool-btn">+ Zoom</button>
+                        <button id="editor-zoom-out-btn" class="tool-btn">- Zoom</button>
+                    </div>
+                    <div class="time-display">
+                        <span id="editor-current-time">00:00.0</span> /
+                        <span id="editor-duration">00:00.0</span>
+                    </div>
+                    <div class="selection-info">
+                        Selection: <span id="selection-start">--</span> - <span id="selection-end">--</span>
                     </div>
                 </div>
 
-                <div class="edit-grid">
-                    <!-- Trim -->
-                    <div class="edit-tool">
-                        <h3>Trim / Cut</h3>
-                        <div class="field">
-                            <label>Start (s)</label><input type="number" id="trim-start" value="0" min="0" step="0.1">
-                        </div>
-                        <div class="field">
-                            <label>End (s)</label><input type="number" id="trim-end" value="10" min="0" step="0.1">
-                        </div>
-                        <button class="edit-btn" data-action="trim">Apply Trim</button>
-                    </div>
+                <!-- Waveform -->
+                <div class="waveform-container">
+                    <div id="waveform"></div>
+                </div>
 
-                    <!-- Fade -->
-                    <div class="edit-tool">
-                        <h3>Fade</h3>
-                        <div class="field">
-                            <label>Fade In (s)</label><input type="number" id="fade-in" value="0" min="0" step="0.1">
-                        </div>
-                        <div class="field">
-                            <label>Fade Out (s)</label><input type="number" id="fade-out" value="2" min="0" step="0.1">
-                        </div>
-                        <button class="edit-btn" data-action="fade">Apply Fade</button>
-                    </div>
+                <!-- Region toolbar -->
+                <div class="region-toolbar">
+                    <button id="set-region-start-btn" class="tool-btn" disabled>Set In</button>
+                    <button id="set-region-end-btn" class="tool-btn" disabled>Set Out</button>
+                    <button id="clear-region-btn" class="tool-btn" disabled>Clear Selection</button>
+                </div>
 
-                    <!-- Volume -->
-                    <div class="edit-tool">
-                        <h3>Volume / Gain</h3>
-                        <div class="field">
-                            <label>Gain (dB)</label><input type="range" id="volume-gain" min="-20" max="20" value="0" step="0.5">
-                            <span id="volume-gain-label">0 dB</span>
-                        </div>
-                        <button class="edit-btn" data-action="volume">Apply Volume</button>
+                <!-- Edit Actions -->
+                <div class="edit-actions-bar">
+                    <div class="edit-actions-group">
+                        <span class="actions-label">Selection:</span>
+                        <button class="action-btn" id="action-trim" data-action="trim" disabled>Cut Outside</button>
+                        <button class="action-btn" id="action-crop" data-action="crop" disabled>Keep Selection</button>
+                        <button class="action-btn" id="action-fade-in-sel" data-action="fade-in-sel" disabled>Fade In</button>
+                        <button class="action-btn" id="action-fade-out-sel" data-action="fade-out-sel" disabled>Fade Out</button>
                     </div>
-
-                    <!-- Normalize -->
-                    <div class="edit-tool">
-                        <h3>Normalize</h3>
-                        <div class="field">
-                            <label>Target (dB)</label><input type="range" id="normalize-target" min="-6" max="0" value="-1" step="0.5">
-                            <span id="normalize-target-label">-1 dB</span>
-                        </div>
-                        <button class="edit-btn" data-action="normalize">Normalize</button>
+                    <div class="edit-actions-group">
+                        <span class="actions-label">Track:</span>
+                        <button class="action-btn" data-action="normalize">Normalize</button>
+                        <button class="action-btn" data-action="speed">Speed</button>
+                        <button class="action-btn" data-action="merge">Merge</button>
+                        <button class="action-btn" id="action-effects-toggle">Effects</button>
                     </div>
+                </div>
 
-                    <!-- Speed -->
-                    <div class="edit-tool">
-                        <h3>Speed</h3>
+                <!-- Effects Panel (hidden by default) -->
+                <div id="effects-panel" class="effects-panel hidden">
+                    <h3>Effects Chain</h3>
+                    <div class="effects-grid">
                         <div class="field">
-                            <label>Factor</label><input type="range" id="speed-factor" min="0.25" max="3" value="1" step="0.05">
-                            <span id="speed-factor-label">1.00x</span>
+                            <label>Reverb Room</label>
+                            <input type="range" id="fx-reverb-room" min="0" max="100" value="0" step="1">
+                            <span id="fx-reverb-room-label">0%</span>
                         </div>
-                        <button class="edit-btn" data-action="speed">Change Speed</button>
+                        <div class="field">
+                            <label>Reverb Wet</label>
+                            <input type="range" id="fx-reverb-wet" min="0" max="100" value="0" step="1">
+                            <span id="fx-reverb-wet-label">0%</span>
+                        </div>
+                        <div class="field">
+                            <label>Delay (s)</label>
+                            <input type="range" id="fx-delay-time" min="0" max="2" value="0" step="0.05">
+                            <span id="fx-delay-time-label">0.00s</span>
+                        </div>
+                        <div class="field">
+                            <label>Delay Mix</label>
+                            <input type="range" id="fx-delay-mix" min="0" max="100" value="0" step="1">
+                            <span id="fx-delay-mix-label">0%</span>
+                        </div>
+                        <div class="field">
+                            <label>Delay FB</label>
+                            <input type="range" id="fx-delay-feedback" min="0" max="100" value="0" step="1">
+                            <span id="fx-delay-feedback-label">0%</span>
+                        </div>
+                        <div class="field">
+                            <label>EQ Low</label>
+                            <input type="range" id="fx-eq-low" min="-12" max="12" value="0" step="0.5">
+                            <span id="fx-eq-low-label">0 dB</span>
+                        </div>
+                        <div class="field">
+                            <label>EQ Mid</label>
+                            <input type="range" id="fx-eq-mid" min="-12" max="12" value="0" step="0.5">
+                            <span id="fx-eq-mid-label">0 dB</span>
+                        </div>
+                        <div class="field">
+                            <label>EQ High</label>
+                            <input type="range" id="fx-eq-high" min="-12" max="12" value="0" step="0.5">
+                            <span id="fx-eq-high-label">0 dB</span>
+                        </div>
+                        <div class="field">
+                            <label>Comp Threshold</label>
+                            <input type="range" id="fx-comp-thresh" min="-60" max="0" value="0" step="1">
+                            <span id="fx-comp-thresh-label">Off</span>
+                        </div>
+                        <div class="field">
+                            <label>Comp Ratio</label>
+                            <input type="range" id="fx-comp-ratio" min="1" max="20" value="4" step="0.5">
+                            <span id="fx-comp-ratio-label">4:1</span>
+                        </div>
+                        <div class="field">
+                            <label>Output Gain</label>
+                            <input type="range" id="fx-gain" min="-12" max="12" value="0" step="0.5">
+                            <span id="fx-gain-label">0 dB</span>
+                        </div>
                     </div>
+                    <button class="edit-btn" data-action="effects">Apply Effects</button>
+                </div>
 
-                    <!-- Merge -->
-                    <div class="edit-tool">
+                <!-- Speed dialog -->
+                <div id="speed-dialog" class="dialog-overlay hidden">
+                    <div class="dialog">
+                        <h3>Change Speed</h3>
+                        <div class="field">
+                            <input type="range" id="speed-factor-dlg" min="0.25" max="3" value="1" step="0.05">
+                            <span id="speed-factor-dlg-label">1.00x</span>
+                        </div>
+                        <div class="dialog-buttons">
+                            <button id="speed-apply-btn">Apply</button>
+                            <button id="speed-cancel-btn" class="cancel-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Merge dialog -->
+                <div id="merge-dialog" class="dialog-overlay hidden">
+                    <div class="dialog">
                         <h3>Merge Stems</h3>
+                        <p class="desc">Select WAV/MP3 files to merge together</p>
                         <div class="field">
-                            <label>Select multiple files</label>
-                            <input type="file" id="merge-files" accept=".wav,.mp3" multiple>
+                            <input type="file" id="merge-files-input" accept=".wav,.mp3" multiple>
                         </div>
-                        <button class="edit-btn" data-action="merge">Merge Files</button>
-                    </div>
-
-                    <!-- Effects Chain -->
-                    <div class="edit-tool edit-tool-wide">
-                        <h3>Effects Chain</h3>
-                        <div class="effects-grid">
-                            <div class="field">
-                                <label>Reverb Room Size</label>
-                                <input type="range" id="fx-reverb-room" min="0" max="100" value="0" step="1">
-                                <span id="fx-reverb-room-label">0%</span>
-                            </div>
-                            <div class="field">
-                                <label>Reverb Wet</label>
-                                <input type="range" id="fx-reverb-wet" min="0" max="100" value="0" step="1">
-                                <span id="fx-reverb-wet-label">0%</span>
-                            </div>
-                            <div class="field">
-                                <label>Delay (s)</label>
-                                <input type="range" id="fx-delay-time" min="0" max="2" value="0" step="0.05">
-                                <span id="fx-delay-time-label">0.00s</span>
-                            </div>
-                            <div class="field">
-                                <label>Delay Mix</label>
-                                <input type="range" id="fx-delay-mix" min="0" max="100" value="0" step="1">
-                                <span id="fx-delay-mix-label">0%</span>
-                            </div>
-                            <div class="field">
-                                <label>Delay Feedback</label>
-                                <input type="range" id="fx-delay-feedback" min="0" max="100" value="0" step="1">
-                                <span id="fx-delay-feedback-label">0%</span>
-                            </div>
-                            <div class="field">
-                                <label>EQ Low</label>
-                                <input type="range" id="fx-eq-low" min="-12" max="12" value="0" step="0.5">
-                                <span id="fx-eq-low-label">0 dB</span>
-                            </div>
-                            <div class="field">
-                                <label>EQ Mid</label>
-                                <input type="range" id="fx-eq-mid" min="-12" max="12" value="0" step="0.5">
-                                <span id="fx-eq-mid-label">0 dB</span>
-                            </div>
-                            <div class="field">
-                                <label>EQ High</label>
-                                <input type="range" id="fx-eq-high" min="-12" max="12" value="0" step="0.5">
-                                <span id="fx-eq-high-label">0 dB</span>
-                            </div>
-                            <div class="field">
-                                <label>Compressor Threshold</label>
-                                <input type="range" id="fx-comp-thresh" min="-60" max="0" value="0" step="1">
-                                <span id="fx-comp-thresh-label">Off</span>
-                            </div>
-                            <div class="field">
-                                <label>Compressor Ratio</label>
-                                <input type="range" id="fx-comp-ratio" min="1" max="20" value="4" step="0.5">
-                                <span id="fx-comp-ratio-label">4:1</span>
-                            </div>
-                            <div class="field">
-                                <label>Output Gain</label>
-                                <input type="range" id="fx-gain" min="-12" max="12" value="0" step="0.5">
-                                <span id="fx-gain-label">0 dB</span>
-                            </div>
+                        <div class="dialog-buttons">
+                            <button id="merge-apply-btn">Merge</button>
+                            <button id="merge-cancel-btn" class="cancel-btn">Cancel</button>
                         </div>
-                        <button class="edit-btn" data-action="effects">Apply Effects Chain</button>
                     </div>
                 </div>
 
+                <!-- Result area -->
                 <div id="edit-result" class="result hidden"></div>
                 <div id="edit-spinner" class="spinner hidden"></div>
             </div>
@@ -247,6 +253,7 @@
         <p>Powered by Meta MusicGen, Demucs, pydub &amp; Pedalboard | GPU: <span id="gpu-status">checking...</span></p>
     </footer>
 
-    <script src="app.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js" type="module"></script>
+    <script src="app.js" type="module"></script>
 </body>
 </html>
