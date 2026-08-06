@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0] - 2026-08-06
+
+### Added
+- Audio editor tab with tabbed navigation UI
+- Trim / cut audio sections
+- Fade in/out with configurable duration
+- Volume adjustment (gain in dB)
+- Audio normalization to target dB level
+- Speed change (0.25x to 3x with pitch correction)
+- Merge multiple stems into a single track
+- Effects chain: reverb, delay, 3-band EQ, compressor, output gain
+- Real-time slider feedback in the UI
+- Pedalboard for high-quality DSP effects
+- pydub for lossless editing operations
+
 ## [1.0.0] - 2026-08-06
 
 ### Added

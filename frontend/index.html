@@ -9,81 +9,242 @@
 <body>
     <header>
         <h1>Music AI Studio</h1>
-        <p class="subtitle">Generate and separate music with AI</p>
+        <p class="subtitle">Generate, separate, and edit music with AI</p>
     </header>
 
+    <nav class="tabs">
+        <button class="tab active" data-tab="generate">Generate</button>
+        <button class="tab" data-tab="separate">Separate</button>
+        <button class="tab" data-tab="pipeline">Pipeline</button>
+        <button class="tab" data-tab="edit">Edit</button>
+    </nav>
+
     <main>
-        <section class="card" id="generate-section">
-            <h2>Generate Music</h2>
-            <p class="desc">Text-to-music using Meta MusicGen</p>
-            <form id="generate-form">
-                <div class="field">
-                    <label for="prompt">Prompt</label>
-                    <input type="text" id="prompt" placeholder="e.g., upbeat electronic dance with synth bass and drums" required>
-                </div>
-                <div class="field">
-                    <label for="duration">Duration (seconds)</label>
-                    <input type="range" id="duration" min="5" max="30" value="10" step="1">
-                    <span id="duration-label">10s</span>
-                </div>
-                <button type="submit" id="generate-btn">Generate</button>
-            </form>
-            <div id="generate-result" class="result hidden"></div>
-            <div id="generate-spinner" class="spinner hidden"></div>
+        <!-- GENERATE TAB -->
+        <section class="tab-panel active" id="tab-generate">
+            <div class="card">
+                <h2>Generate Music</h2>
+                <p class="desc">Text-to-music using Meta MusicGen</p>
+                <form id="generate-form">
+                    <div class="field">
+                        <label for="prompt">Prompt</label>
+                        <input type="text" id="prompt" placeholder="e.g., upbeat electronic dance with synth bass and drums" required>
+                    </div>
+                    <div class="field">
+                        <label for="duration">Duration (seconds)</label>
+                        <input type="range" id="duration" min="5" max="30" value="10" step="1">
+                        <span id="duration-label">10s</span>
+                    </div>
+                    <button type="submit" id="generate-btn">Generate</button>
+                </form>
+                <div id="generate-result" class="result hidden"></div>
+                <div id="generate-spinner" class="spinner hidden"></div>
+            </div>
         </section>
 
-        <div class="divider">
-            <span>OR</span>
-        </div>
+        <!-- SEPARATE TAB -->
+        <section class="tab-panel" id="tab-separate">
+            <div class="card">
+                <h2>Separate Stems</h2>
+                <p class="desc">Split audio into vocals, drums, bass, and other using Demucs</p>
+                <form id="separate-form">
+                    <div class="field">
+                        <label>Upload Audio (WAV, MP3, FLAC)</label>
+                        <div class="drop-zone" id="drop-zone">
+                            <input type="file" id="audio-file" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
+                            <span id="drop-text">Click to upload or drag &amp; drop</span>
+                            <span id="file-name" class="hidden"></span>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="model-select">Model</label>
+                        <select id="model-select">
+                            <option value="htdemucs">htdemucs (best quality)</option>
+                            <option value="htdemucs_ft">htdemucs_ft (fine-tuned)</option>
+                            <option value="htdemucs_6s">htdemucs_6s (6 stems: +piano+guitar)</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="separate-btn" disabled>Separate</button>
+                </form>
+                <div id="separate-result" class="result hidden"></div>
+                <div id="separate-spinner" class="spinner hidden"></div>
+            </div>
+        </section>
 
-        <section class="card" id="separate-section">
-            <h2>Separate Stems</h2>
-            <p class="desc">Split audio into vocals, drums, bass, and other using Demucs</p>
-            <form id="separate-form">
+        <!-- PIPELINE TAB -->
+        <section class="tab-panel" id="tab-pipeline">
+            <div class="card">
+                <h2>Pipeline: Generate then Separate</h2>
+                <p class="desc">Generate music and automatically split into stems</p>
+                <form id="pipeline-form">
+                    <div class="field">
+                        <label for="pipeline-prompt">Prompt</label>
+                        <input type="text" id="pipeline-prompt" placeholder="e.g., chill lo-fi beat with piano and soft drums">
+                    </div>
+                    <div class="field">
+                        <label for="pipeline-duration">Duration</label>
+                        <input type="range" id="pipeline-duration" min="5" max="30" value="10" step="1">
+                        <span id="pipeline-duration-label">10s</span>
+                    </div>
+                    <button type="submit" id="pipeline-btn">Generate &amp; Separate</button>
+                </form>
+                <div id="pipeline-result" class="result hidden"></div>
+                <div id="pipeline-spinner" class="spinner hidden"></div>
+            </div>
+        </section>
+
+        <!-- EDIT TAB -->
+        <section class="tab-panel" id="tab-edit">
+            <div class="card">
+                <h2>Edit Audio</h2>
+                <p class="desc">Trim, fade, adjust, and apply effects</p>
+
                 <div class="field">
-                    <label for="audio-file">Upload Audio (WAV, MP3, FLAC)</label>
-                    <div class="drop-zone" id="drop-zone">
-                        <input type="file" id="audio-file" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
-                        <span id="drop-text">Click to upload or drag &amp; drop</span>
-                        <span id="file-name" class="hidden"></span>
+                    <label>Upload Audio to Edit</label>
+                    <div class="drop-zone" id="edit-drop-zone">
+                        <input type="file" id="edit-audio-file" accept=".wav,.mp3,.flac,.ogg,.m4a" hidden>
+                        <span id="edit-drop-text">Click to upload or drag &amp; drop</span>
+                        <span id="edit-file-name" class="hidden"></span>
                     </div>
                 </div>
-                <div class="field">
-                    <label for="model-select">Model</label>
-                    <select id="model-select">
-                        <option value="htdemucs">htdemucs (best quality)</option>
-                        <option value="htdemucs_ft">htdemucs_ft (fine-tuned)</option>
-                        <option value="htdemucs_6s">htdemucs_6s (6 stems: +piano+guitar)</option>
-                    </select>
-                </div>
-                <button type="submit" id="separate-btn" disabled>Separate</button>
-            </form>
-            <div id="separate-result" class="result hidden"></div>
-            <div id="separate-spinner" class="spinner hidden"></div>
-        </section>
 
-        <section class="card" id="pipeline-section">
-            <h2>Pipeline: Generate then Separate</h2>
-            <p class="desc">Generate music and automatically split into stems</p>
-            <form id="pipeline-form">
-                <div class="field">
-                    <label for="pipeline-prompt">Prompt</label>
-                    <input type="text" id="pipeline-prompt" placeholder="e.g., chill lo-fi beat with piano and soft drums">
+                <div class="edit-grid">
+                    <!-- Trim -->
+                    <div class="edit-tool">
+                        <h3>Trim / Cut</h3>
+                        <div class="field">
+                            <label>Start (s)</label><input type="number" id="trim-start" value="0" min="0" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label>End (s)</label><input type="number" id="trim-end" value="10" min="0" step="0.1">
+                        </div>
+                        <button class="edit-btn" data-action="trim">Apply Trim</button>
+                    </div>
+
+                    <!-- Fade -->
+                    <div class="edit-tool">
+                        <h3>Fade</h3>
+                        <div class="field">
+                            <label>Fade In (s)</label><input type="number" id="fade-in" value="0" min="0" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label>Fade Out (s)</label><input type="number" id="fade-out" value="2" min="0" step="0.1">
+                        </div>
+                        <button class="edit-btn" data-action="fade">Apply Fade</button>
+                    </div>
+
+                    <!-- Volume -->
+                    <div class="edit-tool">
+                        <h3>Volume / Gain</h3>
+                        <div class="field">
+                            <label>Gain (dB)</label><input type="range" id="volume-gain" min="-20" max="20" value="0" step="0.5">
+                            <span id="volume-gain-label">0 dB</span>
+                        </div>
+                        <button class="edit-btn" data-action="volume">Apply Volume</button>
+                    </div>
+
+                    <!-- Normalize -->
+                    <div class="edit-tool">
+                        <h3>Normalize</h3>
+                        <div class="field">
+                            <label>Target (dB)</label><input type="range" id="normalize-target" min="-6" max="0" value="-1" step="0.5">
+                            <span id="normalize-target-label">-1 dB</span>
+                        </div>
+                        <button class="edit-btn" data-action="normalize">Normalize</button>
+                    </div>
+
+                    <!-- Speed -->
+                    <div class="edit-tool">
+                        <h3>Speed</h3>
+                        <div class="field">
+                            <label>Factor</label><input type="range" id="speed-factor" min="0.25" max="3" value="1" step="0.05">
+                            <span id="speed-factor-label">1.00x</span>
+                        </div>
+                        <button class="edit-btn" data-action="speed">Change Speed</button>
+                    </div>
+
+                    <!-- Merge -->
+                    <div class="edit-tool">
+                        <h3>Merge Stems</h3>
+                        <div class="field">
+                            <label>Select multiple files</label>
+                            <input type="file" id="merge-files" accept=".wav,.mp3" multiple>
+                        </div>
+                        <button class="edit-btn" data-action="merge">Merge Files</button>
+                    </div>
+
+                    <!-- Effects Chain -->
+                    <div class="edit-tool edit-tool-wide">
+                        <h3>Effects Chain</h3>
+                        <div class="effects-grid">
+                            <div class="field">
+                                <label>Reverb Room Size</label>
+                                <input type="range" id="fx-reverb-room" min="0" max="100" value="0" step="1">
+                                <span id="fx-reverb-room-label">0%</span>
+                            </div>
+                            <div class="field">
+                                <label>Reverb Wet</label>
+                                <input type="range" id="fx-reverb-wet" min="0" max="100" value="0" step="1">
+                                <span id="fx-reverb-wet-label">0%</span>
+                            </div>
+                            <div class="field">
+                                <label>Delay (s)</label>
+                                <input type="range" id="fx-delay-time" min="0" max="2" value="0" step="0.05">
+                                <span id="fx-delay-time-label">0.00s</span>
+                            </div>
+                            <div class="field">
+                                <label>Delay Mix</label>
+                                <input type="range" id="fx-delay-mix" min="0" max="100" value="0" step="1">
+                                <span id="fx-delay-mix-label">0%</span>
+                            </div>
+                            <div class="field">
+                                <label>Delay Feedback</label>
+                                <input type="range" id="fx-delay-feedback" min="0" max="100" value="0" step="1">
+                                <span id="fx-delay-feedback-label">0%</span>
+                            </div>
+                            <div class="field">
+                                <label>EQ Low</label>
+                                <input type="range" id="fx-eq-low" min="-12" max="12" value="0" step="0.5">
+                                <span id="fx-eq-low-label">0 dB</span>
+                            </div>
+                            <div class="field">
+                                <label>EQ Mid</label>
+                                <input type="range" id="fx-eq-mid" min="-12" max="12" value="0" step="0.5">
+                                <span id="fx-eq-mid-label">0 dB</span>
+                            </div>
+                            <div class="field">
+                                <label>EQ High</label>
+                                <input type="range" id="fx-eq-high" min="-12" max="12" value="0" step="0.5">
+                                <span id="fx-eq-high-label">0 dB</span>
+                            </div>
+                            <div class="field">
+                                <label>Compressor Threshold</label>
+                                <input type="range" id="fx-comp-thresh" min="-60" max="0" value="0" step="1">
+                                <span id="fx-comp-thresh-label">Off</span>
+                            </div>
+                            <div class="field">
+                                <label>Compressor Ratio</label>
+                                <input type="range" id="fx-comp-ratio" min="1" max="20" value="4" step="0.5">
+                                <span id="fx-comp-ratio-label">4:1</span>
+                            </div>
+                            <div class="field">
+                                <label>Output Gain</label>
+                                <input type="range" id="fx-gain" min="-12" max="12" value="0" step="0.5">
+                                <span id="fx-gain-label">0 dB</span>
+                            </div>
+                        </div>
+                        <button class="edit-btn" data-action="effects">Apply Effects Chain</button>
+                    </div>
                 </div>
-                <div class="field">
-                    <label for="pipeline-duration">Duration</label>
-                    <input type="range" id="pipeline-duration" min="5" max="30" value="10" step="1">
-                    <span id="pipeline-duration-label">10s</span>
-                </div>
-                <button type="submit" id="pipeline-btn">Generate &amp; Separate</button>
-            </form>
-            <div id="pipeline-result" class="result hidden"></div>
-            <div id="pipeline-spinner" class="spinner hidden"></div>
+
+                <div id="edit-result" class="result hidden"></div>
+                <div id="edit-spinner" class="spinner hidden"></div>
+            </div>
         </section>
     </main>
 
     <footer>
-        <p>Powered by Meta MusicGen &amp; Demucs | GPU: <span id="gpu-status">checking...</span></p>
+        <p>Powered by Meta MusicGen, Demucs, pydub &amp; Pedalboard | GPU: <span id="gpu-status">checking...</span></p>
     </footer>
 
     <script src="app.js"></script>
