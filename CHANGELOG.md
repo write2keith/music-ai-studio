@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.0.0] - 2026-08-06
+
+### Added
+- DAW-inspired dark theme design system (Ableton/Logic Pro style)
+- Glass morphism, glow effects, and framer-motion micro-interactions
+- Sidebar navigation with animated active indicators
+- Top navigation bar with search, notifications, and user menu
+- Advanced Prompt Builder with genre, mood, key, BPM, structure toggle filters
+- AI Smart Prompt Enhancer (LLM-powered prompt enrichment)
+- Credit Balance widget with plan/monetization modal
+- Studio Dashboard with two-column layout (prompt + recent tracks)
+- Community Discover feed (SoundCloud-style with trending/new/top tabs)
+- Personal Library with All/Completed/Drafts/Published tab filtering
+- TrackCard component (grid and list variants with play overlay and quick actions)
+- Toast notification system (success, error, info with animated dismiss)
+- Skeleton loaders for dashboard, track cards, and content
+- Custom UI primitives: Button, Card, Badge, Tabs, Progress, Toast
+- Stem-colored badges (vocals, drums, bass, piano, guitar)
+- Custom scrollbar styling and selection colors
+- JetBrains Mono monospace font for technical displays
+- Router redirect from `/` to `/studio`
+
+### Changed
+- Root layout: sidebar + topbar shell replaces old Navbar+footer
+- globals.css: complete Tailwind v4 theme redesign with CSS custom properties
+- page.tsx: redirect to /studio instead of old generation form
+- package.json: added framer-motion, @radix-ui, lucide-react, sonner, class-variance-authority
+
 ## [1.2.0] - 2026-08-06
 
 ### Added

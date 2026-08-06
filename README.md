@@ -1,6 +1,6 @@
 # Music AI Studio
 
-A production-grade web application combining AI music generation, stem separation, and audio editing in a single interface. Powered by Meta MusicGen, Demucs, and Pedalboard.
+A production-grade DAW-inspired web application combining AI music generation, stem separation, and audio editing. Powered by Meta MusicGen, Demucs, and Pedalboard.
 
 ## Architecture
 
@@ -30,19 +30,28 @@ music-ai-studio/
 ├── frontend/                    # Next.js TypeScript frontend
 │   ├── src/
 │   │   ├── app/                 # App router pages
-│   │   │   ├── page.tsx         # Home (music generation)
-│   │   │   ├── generate/page.tsx # Stem separation
-│   │   │   └── editor/page.tsx  # Audio editor
+│   │   │   ├── page.tsx         # Redirect to /studio
+│   │   │   ├── layout.tsx       # Root layout with sidebar + topbar
+│   │   │   ├── globals.css      # DAW dark theme design system
+│   │   │   ├── studio/          # Studio dashboard (prompt builder + tracks)
+│   │   │   ├── community/       # Community feed (discover, trending)
+│   │   │   ├── library/         # Personal library (track management)
+│   │   │   ├── generate/        # Stem separation
+│   │   │   └── editor/          # Audio waveform editor
 │   │   ├── components/
-│   │   │   ├── Navbar.tsx       # Navigation bar
-│   │   │   ├── ErrorBoundary.tsx # Error catch boundary
-│   │   │   ├── LoadingSpinner.tsx # Loading states
-│   │   │   ├── AudioPlayer.tsx  # Audio playback component
+│   │   │   ├── ui/              # Design primitives (Button, Card, Badge, Toast, etc.)
+│   │   │   ├── studio/          # Studio features (Sidebar, TopNav, PromptBuilder, TrackCard)
+│   │   │   ├── community/       # CommunityFeed component
+│   │   │   ├── library/         # LibraryView component
+│   │   │   ├── Navbar.tsx       # (legacy) Navigation bar
+│   │   │   ├── ErrorBoundary.tsx
+│   │   │   ├── LoadingSpinner.tsx
+│   │   │   ├── AudioPlayer.tsx
 │   │   │   └── WaveformEditor.tsx # Audacity-style editor
 │   │   └── lib/
 │   │       ├── api.ts           # Typed API client
 │   │       ├── types.ts         # TypeScript interfaces
-│   │       └── utils.ts         # Utility functions
+│   │       └── utils.ts         # cn(), formatTime(), formatSize()
 │   └── next.config.ts           # API proxy rewrites + allowedHosts
 ├── .env.example                 # Comprehensive env template
 ├── VERIFICATION.md              # Step-by-step verification checklist
@@ -54,17 +63,29 @@ music-ai-studio/
 
 | Concern | Implementation |
 |---------|---------------|
+| UI Framework | Next.js 16 + TailwindCSS v4 + framer-motion |
+| Design System | DAW-inspired dark theme (deep charcoal/slate, violet/cyan accents) |
+| UI Primitives | Radix UI base + custom shadcn-style components |
 | API Validation | Pydantic v2 schemas on all endpoints |
 | Async Processing | Job queue with polling (in-memory, Redis-ready) |
 | Type Safety | TypeScript on frontend, Python type hints on backend |
-| Error Handling | Error boundaries, try-catch, typed API errors |
-| Loading States | LoadingSpinner component, skeleton placeholders |
+| Error Handling | Error boundaries, try-catch, typed API errors, toast notifications |
+| Loading States | Skeleton loaders, LoadingSpinner, progress bars |
 | Auth (ready) | Middleware with session/cookie support, BetterAuth Prisma schema |
 | Database | Prisma schema for users, projects, generations |
 | Payments | Stripe integration hooks in config |
 | Cloud Storage | S3/R2 config in settings |
 
 ## Features
+
+### Studio Dashboard
+Two-column layout with the Advanced Prompt Builder on the left and recent tracks on the right. The Prompt Builder includes toggles for Genre, Mood, Key, BPM, and Structure with an AI-powered Smart Prompt Enhancer. Track cards show cover art, play overlay, stem badges, and quick actions (download MP3/WAV, stems, fork).
+
+### Community Feed
+SoundCloud-style explore view with Trending, New, Top, and For You tabs. Each post shows the track title, artist, genre, the original prompt used to generate it, and like/fork/share actions with counts.
+
+### Library
+Personal track management with All, Completed, Drafts, and Published tab filters. Tracks are displayed in a table-row layout with play buttons, genre/mood tags, export format badges (MP3/WAV/Stems), published status, and inline actions (edit, download, stems, more).
 
 ### Generate
 Text-to-music via Meta MusicGen. Submit a prompt, the job is queued asynchronously, and the result appears when complete. Built-in polling with status display.
