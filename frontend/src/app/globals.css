@@ -1,66 +1,188 @@
 @import "tailwindcss";
 
+@theme inline {
+  --color-daw-bg: #0a0a0f;
+  --color-daw-surface: #111118;
+  --color-daw-surface-2: #181825;
+  --color-daw-surface-3: #1e1e2e;
+  --color-daw-border: #252536;
+  --color-daw-border-hover: #313148;
+  --color-daw-text: #e0e0f0;
+  --color-daw-text-muted: #808099;
+  --color-daw-text-dim: #555570;
+  --color-daw-accent: #a855f7;
+  --color-daw-accent-glow: #c084fc;
+  --color-daw-cyan: #22d3ee;
+  --color-daw-green: #34d399;
+  --color-daw-orange: #fb923c;
+  --color-daw-red: #f87171;
+  --color-daw-pink: #f472b6;
+  --color-daw-vocal: #f472b6;
+  --color-daw-drum: #fb923c;
+  --color-daw-bass: #22d3ee;
+  --color-daw-other: #a855f7;
+  --color-daw-piano: #34d399;
+  --color-daw-guitar: #fbbf24;
+  --font-daw: var(--font-inter);
+  --font-daw-mono: var(--font-jetbrains-mono);
+  --radius-daw: 0.625rem;
+}
+
 @layer base {
   * {
-    border-color: var(--color-zinc-800);
+    border-color: var(--color-daw-border);
   }
   body {
-    background-color: var(--color-zinc-950);
-    color: var(--color-zinc-100);
+    background-color: var(--color-daw-bg);
+    color: var(--color-daw-text);
+    font-family: var(--font-daw);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-daw-accent) 30%, transparent);
+    color: white;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-daw-border-hover);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-daw-text-dim);
   }
 }
 
 @layer components {
-  .card {
-    background-color: color-mix(in srgb, var(--color-zinc-900) 80%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-zinc-800) 80%, transparent);
-    border-radius: 1rem;
-    padding: 1.5rem;
+  .glass {
+    background: color-mix(in srgb, var(--color-daw-surface) 80%, transparent);
+    backdrop-filter: blur(20px);
+    border: 1px solid color-mix(in srgb, var(--color-daw-border) 60%, transparent);
   }
-  .input {
-    width: 100%;
-    background-color: color-mix(in srgb, var(--color-zinc-800) 50%, transparent);
-    border: 1px solid var(--color-zinc-700);
-    border-radius: 0.5rem;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.875rem;
-    color: var(--color-zinc-200);
-    outline: none;
-    transition: border-color 0.2s;
-    &::placeholder {
-      color: var(--color-zinc-500);
-    }
-    &:focus {
-      border-color: color-mix(in srgb, var(--color-violet-500) 50%, transparent);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-violet-500) 20%, transparent);
-    }
+  .glass-hover:hover {
+    background: color-mix(in srgb, var(--color-daw-surface-2) 80%, transparent);
+    border-color: color-mix(in srgb, var(--color-daw-border-hover) 60%, transparent);
   }
-  .btn-primary {
-    width: 100%;
-    background-color: var(--color-violet-600);
-    color: white;
+  .glow {
+    box-shadow: 0 0 20px color-mix(in srgb, var(--color-daw-accent) 15%, transparent),
+                0 0 40px color-mix(in srgb, var(--color-daw-accent) 5%, transparent);
+  }
+  .glow-cyan {
+    box-shadow: 0 0 20px color-mix(in srgb, var(--color-daw-cyan) 15%, transparent),
+                0 0 40px color-mix(in srgb, var(--color-daw-cyan) 5%, transparent);
+  }
+  .track-gradient {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--color-daw-surface-2) 100%, transparent) 0%,
+      color-mix(in srgb, var(--color-daw-surface-3) 100%, transparent) 100%);
+  }
+  .prompt-glow {
+    transition: box-shadow 0.3s ease;
+  }
+  .prompt-glow:focus-within {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-daw-accent) 40%, transparent),
+                0 0 30px color-mix(in srgb, var(--color-daw-accent) 10%, transparent);
+  }
+  .daw-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
     font-weight: 500;
-    border-radius: 0.5rem;
-    padding: 0.625rem;
-    transition: background-color 0.2s;
-    &:hover {
-      background-color: var(--color-violet-500);
-    }
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-daw);
+    transition: all 0.15s ease;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
     &:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
   }
-  .btn-secondary {
-    width: 100%;
-    background-color: var(--color-zinc-800);
-    color: var(--color-zinc-200);
-    font-weight: 500;
-    border-radius: 0.5rem;
-    padding: 0.625rem;
-    transition: background-color 0.2s;
-    &:hover {
-      background-color: var(--color-zinc-700);
+  .daw-button-primary {
+    background: linear-gradient(135deg, var(--color-daw-accent), #7c3aed);
+    color: white;
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--color-daw-accent-glow), #8b5cf6);
+      box-shadow: 0 0 20px color-mix(in srgb, var(--color-daw-accent) 30%, transparent);
     }
+  }
+  .daw-button-secondary {
+    background: var(--color-daw-surface-3);
+    color: var(--color-daw-text);
+    border: 1px solid var(--color-daw-border);
+    &:hover:not(:disabled) {
+      background: var(--color-daw-border-hover);
+      border-color: var(--color-daw-border-hover);
+    }
+  }
+  .daw-button-ghost {
+    background: transparent;
+    color: var(--color-daw-text-muted);
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-daw-surface-3) 50%, transparent);
+      color: var(--color-daw-text);
+    }
+  }
+  .daw-input {
+    width: 100%;
+    background: var(--color-daw-surface);
+    border: 1px solid var(--color-daw-border);
+    border-radius: var(--radius-daw);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-daw-text);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    &::placeholder { color: var(--color-daw-text-dim); }
+    &:focus {
+      border-color: var(--color-daw-accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-daw-accent) 20%, transparent);
+    }
+  }
+  .daw-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .skeleton {
+    background: linear-gradient(90deg,
+      var(--color-daw-surface-2) 25%,
+      var(--color-daw-surface-3) 50%,
+      var(--color-daw-surface-2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .animate-fade-up {
+    animation: fade-up 0.4s ease-out;
+  }
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
   }
 }
