@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     MUSICGEN_MODEL_SIZE: str = "small"
     MUSICGEN_DURATION: int = 10
     HF_TOKEN: str = ""
+    GENERATION_MODE: str = "auto"  # auto, local, cloud
 
     # Cloud Storage (S3/R2)
     STORAGE_PROVIDER: str = "local"

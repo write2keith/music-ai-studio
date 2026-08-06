@@ -70,8 +70,11 @@ async def health():
         return {
             "status": "ok",
             "service": "Music AI Studio",
+            "generation_mode": model_info.get("mode", "unknown"),
             "gpu_available": model_info["gpu_available"],
             "gpu_name": model_info["gpu_name"],
+            "cloud_available": model_info.get("cloud_available", False),
+            "local_available": model_info.get("local_available", False),
             "environment": settings.ENVIRONMENT,
         }
     except Exception:
