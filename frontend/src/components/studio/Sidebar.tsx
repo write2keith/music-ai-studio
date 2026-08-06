@@ -23,6 +23,7 @@ const mainLinks = [
   { href: "/studio", label: "Studio", icon: LayoutDashboard },
   { href: "/generate", label: "Generate", icon: Wand2 },
   { href: "/editor", label: "Editor", icon: Scissors },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 const exploreLinks = [

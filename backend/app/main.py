@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from .config import get_settings
 from .routers import generate, edit, tracks, llm, auth, billing
+from .routers import settings as settings_router
 from .middleware.auth import AuthMiddleware
 from .queue.tasks import setup_tasks
 from .queue.worker import queue, JobStatus
@@ -60,6 +61,7 @@ app.include_router(tracks.router)
 app.include_router(llm.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/api/health")

@@ -51,7 +51,7 @@ export function TopNav({ onMenuClick }: { onMenuClick?: () => void }) {
         <IconButton>
           <Bell className="w-4 h-4" />
         </IconButton>
-        <IconButton onClick={() => router.push("/editor")}>
+        <IconButton onClick={() => router.push("/settings")}>
           <Settings className="w-4 h-4" />
         </IconButton>
 
