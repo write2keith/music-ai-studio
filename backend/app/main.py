@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from .config import get_settings
 from .routers import generate, edit, tracks, llm, auth, billing
 from .routers import settings as settings_router
+from .routers import tools as tools_router
 from .middleware.auth import AuthMiddleware
 from .queue.tasks import setup_tasks
 from .queue.worker import queue, JobStatus
@@ -62,6 +63,7 @@ app.include_router(llm.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(settings_router.router)
+app.include_router(tools_router.router)
 
 
 @app.get("/api/health")
@@ -98,7 +100,9 @@ async def model_info():
 async def serve_audio(filename: str):
     filepath = Path(settings.UPLOAD_DIR) / filename
     if filepath.exists():
-        return FileResponse(filepath, media_type="audio/wav")
+        ext = filepath.suffix.lower()
+        media_types = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".flac": "audio/flac"}
+        return FileResponse(filepath, media_type=media_types.get(ext, "audio/wav"))
     raise HTTPException(status_code=404, detail="Audio file not found")
 
 

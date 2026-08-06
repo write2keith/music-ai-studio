@@ -11,10 +11,8 @@ import {
   Users,
   Library,
   Settings,
-  Sparkles,
+  Wrench,
   TrendingUp,
-  Clock,
-  Heart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CreditWidget } from "./CreditWidget";
@@ -22,6 +20,7 @@ import { CreditWidget } from "./CreditWidget";
 const mainLinks = [
   { href: "/studio", label: "Studio", icon: LayoutDashboard },
   { href: "/generate", label: "Generate", icon: Wand2 },
+  { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/editor", label: "Editor", icon: Scissors },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
