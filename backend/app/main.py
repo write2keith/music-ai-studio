@@ -70,7 +70,9 @@ app.include_router(tools_router.router)
 async def health():
     try:
         from .services.generator import get_model_info
+        from .services.separator import get_separator_info
         model_info = get_model_info()
+        sep_info = get_separator_info()
         return {
             "status": "ok",
             "service": "Music AI Studio",
@@ -79,6 +81,8 @@ async def health():
             "gpu_name": model_info["gpu_name"],
             "cloud_available": model_info.get("cloud_available", False),
             "local_available": model_info.get("local_available", False),
+            "demucs_available": sep_info.get("demucs_available", False),
+            "ffmpeg_available": sep_info.get("ffmpeg_available", False),
             "environment": settings.ENVIRONMENT,
         }
     except Exception:
