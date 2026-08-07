@@ -23,6 +23,7 @@ import { cn, formatSize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
+import { api } from "@/lib/api";
 
 interface DownloadResult {
   title: string;
