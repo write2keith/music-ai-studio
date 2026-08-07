@@ -89,6 +89,7 @@ export default function ToolsPage() {
 
   const [transcribeFile, setTranscribeFile] = useState<File | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  const [transcribeMethod, setTranscribeMethod] = useState<"fft" | "polyphonic">("fft");
   const [transcribeError, setTranscribeError] = useState("");
   const [transcribeResult, setTranscribeResult] = useState<TranscribeResult | null>(null);
 
@@ -176,7 +177,7 @@ export default function ToolsPage() {
     setTranscribeResult(null);
 
     try {
-      const data = await api.tools.transcribe(transcribeFile);
+      const data = await api.tools.transcribe(transcribeFile, transcribeMethod);
       setTranscribeResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -509,9 +510,30 @@ export default function ToolsPage() {
           Instrument Note Detection
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
-          Analyze a separated instrument stem (guitar, piano, bass) to detect MIDI notes with timing.
-          Works best with monophonic stems. Supports WAV, MP3, M4A, FLAC, OGG.
+          Analyze an instrument stem to detect MIDI notes with timing.
+          FFT for single-note lines, Polyphonic for chords. Supports WAV, MP3, M4A, FLAC, OGG.
         </p>
+
+        <div className="flex gap-1 mt-3 p-0.5 rounded-lg bg-daw-surface-2 w-fit">
+          {(["fft", "polyphonic"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => {
+                setTranscribeMethod(m);
+                setTranscribeResult(null);
+                setTranscribeError("");
+              }}
+              className={cn(
+                "px-3 py-1 text-xs rounded-md font-medium transition-colors",
+                transcribeMethod === m
+                  ? "bg-violet-500/20 text-violet-300"
+                  : "text-daw-text-muted hover:text-daw-text"
+              )}
+            >
+              {m === "fft" ? "Mono (FFT)" : "Polyphonic"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="glass rounded-xl p-5 space-y-4">

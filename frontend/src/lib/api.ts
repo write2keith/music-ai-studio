@@ -205,9 +205,10 @@ export const api = {
   },
 
   tools: {
-    transcribe: (file: File) => {
+    transcribe: (file: File, method: string = "fft") => {
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("method", method);
       return upload<TranscribeResult>("/api/tools/transcribe", fd);
     },
   },

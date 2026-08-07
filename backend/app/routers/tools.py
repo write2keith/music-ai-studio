@@ -326,9 +326,155 @@ def _detect_notes_fft(audio_path: str) -> dict:
     }
 
 
+def _detect_notes_polyphonic(audio_path: str) -> dict:
+    import numpy as np
+    import scipy.io.wavfile as wav
+
+    sr, data = wav.read(str(audio_path))
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    data = data.astype(np.float32)
+    max_val = np.max(np.abs(data))
+    if max_val > 0:
+        data = data / max_val
+
+    duration = len(data) / sr
+
+    n_fft = 4096
+    hop_samples = n_fft // 4
+    num_frames = (len(data) - n_fft) // hop_samples + 1
+    if num_frames < 1:
+        return {"notes": [], "duration_secs": round(duration, 1), "method": "polyphonic"}
+
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    lo_idx = int(40 * n_fft / sr)
+    hi_idx = int(4000 * n_fft / sr)
+    valid_freqs = freqs[lo_idx:hi_idx + 1]
+    valid_len = len(valid_freqs)
+
+    all_frame_notes = []
+
+    for f in range(num_frames):
+        start = f * hop_samples
+        frame = data[start : start + n_fft]
+        rms = float(np.sqrt(np.mean(frame ** 2)))
+        if rms < 0.008:
+            all_frame_notes.append([])
+            continue
+
+        windowed = frame * np.hanning(n_fft)
+        spec = np.abs(np.fft.rfft(windowed, n=n_fft))
+        spec_valid = spec[lo_idx:hi_idx + 1].copy()
+        peak_mag = float(np.max(spec_valid))
+        if peak_mag < 1e-6:
+            all_frame_notes.append([])
+            continue
+
+        frame_notes = []
+        work_spec = spec_valid.copy()
+        noise_floor = float(np.median(spec[lo_idx:hi_idx + 1])) * 3
+
+        for _ in range(6):
+            peak_rel = int(np.argmax(work_spec))
+            mag = float(work_spec[peak_rel])
+            if mag < noise_floor or mag < peak_mag * 0.08:
+                break
+
+            freq = valid_freqs[peak_rel]
+            midi, name = _hz_to_note(freq)
+            vel = min(1.0, round(mag / max(peak_mag, 1e-6) * 0.6, 2))
+
+            if vel > 0.05:
+                frame_notes.append({
+                    "pitch": midi,
+                    "note_name": name,
+                    "velocity": vel,
+                })
+
+            for h in [1, 2, 3, 4, 5, 6]:
+                hz = freq * h
+                hz_idx_exact = hz * n_fft / sr
+                center = int(hz_idx_exact) - lo_idx
+                bw = max(2, int(hz * 0.03 * n_fft / sr))
+                for k in range(max(0, center - bw), min(valid_len, center + bw + 1)):
+                    work_spec[k] *= 0.05
+
+        all_frame_notes.append(frame_notes)
+
+    notes = []
+    i = 0
+    while i < num_frames:
+        current = all_frame_notes[i]
+        if not current:
+            i += 1
+            continue
+
+        pitches = tuple(sorted(n["pitch"] for n in current))
+        j = i + 1
+        while j < num_frames:
+            if not all_frame_notes[j]:
+                break
+            next_pitches = tuple(sorted(n["pitch"] for n in all_frame_notes[j]))
+            if len(pitches) != len(next_pitches):
+                if len(next_pitches) > 0:
+                    overlap = len(set(pitches) & set(next_pitches))
+                    if overlap >= max(1, len(pitches) // 2):
+                        pitches = next_pitches
+                        j += 1
+                        continue
+                break
+            if pitches != next_pitches:
+                common = set(pitches) & set(next_pitches)
+                if len(common) >= max(1, len(pitches) // 2):
+                    pitches = next_pitches
+                    j += 1
+                    continue
+                break
+            j += 1
+
+        duration_sec = (j - i) * (hop_samples / sr)
+        if duration_sec >= 0.04:
+            start_t = i * hop_samples / sr + n_fft / (2 * sr)
+            end_t = (j - 1) * hop_samples / sr + n_fft / (2 * sr)
+            note_count = 0
+            for fnotes in all_frame_notes[i:j]:
+                for fn in fnotes:
+                    if fn["pitch"] in pitches and fn["pitch"] not in [n["pitch"] for n in notes if n["start_time"] == round(start_t, 3)]:
+                        notes.append({
+                            "start_time": round(start_t, 3),
+                            "end_time": round(end_t, 3),
+                            "pitch": fn["pitch"],
+                            "note_name": fn["note_name"],
+                            "velocity": fn["velocity"],
+                        })
+                        note_count += 1
+                    if note_count >= len(pitches):
+                        break
+
+        i = j
+
+    merged = []
+    notes.sort(key=lambda n: (n["pitch"], n["start_time"]))
+    for n in notes:
+        if merged and merged[-1]["pitch"] == n["pitch"] and n["start_time"] - merged[-1]["end_time"] < 0.12:
+            merged[-1]["end_time"] = n["end_time"]
+            merged[-1]["velocity"] = round(max(merged[-1]["velocity"], n["velocity"]), 2)
+        else:
+            merged.append(n)
+
+    merged.sort(key=lambda n: n["start_time"])
+
+    return {
+        "notes": merged,
+        "duration_secs": round(duration, 1),
+        "method": "polyphonic",
+    }
+
+
 @router.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe_notes(
     file: UploadFile = File(...),
+    method: str = Form(default="fft"),
 ):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -359,7 +505,10 @@ async def transcribe_notes(
             )
 
     try:
-        result = _detect_notes_fft(str(wav_path))
+        if method == "polyphonic":
+            result = _detect_notes_polyphonic(str(wav_path))
+        else:
+            result = _detect_notes_fft(str(wav_path))
     except Exception as e:
         wav_path.unlink(missing_ok=True)
         if wav_path != tmp_path:
