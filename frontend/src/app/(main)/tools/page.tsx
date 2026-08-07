@@ -83,6 +83,7 @@ export default function ToolsPage() {
   const [compressRate, setCompressRate] = useState(22050);
   const [compressDepth, setCompressDepth] = useState(16);
   const [compressMono, setCompressMono] = useState(true);
+  const [compressFormat, setCompressFormat] = useState<"wav" | "mp3">("wav");
   const [compressing, setCompressing] = useState(false);
   const [compressError, setCompressError] = useState("");
   const [compressResult, setCompressResult] = useState<CompressResult | null>(null);
@@ -132,7 +133,7 @@ export default function ToolsPage() {
     setCompressResult(null);
 
     try {
-      const data = await api.tools.compress(compressFile, compressRate, compressDepth, compressMono);
+      const data = await api.tools.compress(compressFile, compressRate, compressDepth, compressMono, compressFormat);
       setCompressResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -398,6 +399,27 @@ export default function ToolsPage() {
             className="w-4 h-4 rounded border-daw-border bg-daw-surface-2 accent-daw-accent"
           />
           <span className="text-xs text-daw-text-muted">Convert to mono (halves size for stereo files)</span>
+        </label>
+
+        {/* Output Format */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <span className="text-xs text-daw-text-muted w-20">Format:</span>
+          <div className="flex gap-1 p-0.5 rounded-lg bg-daw-surface-2">
+            {(["wav", "mp3"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setCompressFormat(f)}
+                className={cn(
+                  "px-3 py-1 text-xs rounded-md font-medium transition-colors",
+                  compressFormat === f
+                    ? "bg-daw-accent/20 text-daw-accent"
+                    : "text-daw-text-muted hover:text-daw-text"
+                )}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </label>
 
         {/* Compress Button */}

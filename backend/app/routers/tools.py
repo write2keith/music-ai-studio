@@ -113,6 +113,7 @@ async def compress_audio(
     sample_rate: int = Form(default=22050),
     bit_depth: int = Form(default=16),
     to_mono: bool = Form(default=True),
+    output_format: str = Form(default="wav"),
 ):
     import numpy as np
     import scipy.io.wavfile as wav
@@ -165,9 +166,23 @@ async def compress_audio(
     data = (data * (np.iinfo(dtype).max - 1)).astype(dtype)
 
     duration = len(data) / sample_rate
-    out_filename = f"compressed_{uuid.uuid4().hex[:12]}.wav"
+
+    out_ext = "mp3" if output_format == "mp3" else "wav"
+    out_filename = f"compressed_{uuid.uuid4().hex[:12]}.{out_ext}"
     out_path = output_dir / out_filename
+
     wav.write(str(out_path), sample_rate, data)
+
+    if output_format == "mp3":
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_wav(str(out_path))
+            mp3_path = output_dir / out_filename
+            audio.export(str(mp3_path), format="mp3", bitrate="128k")
+            out_path.unlink(missing_ok=True)
+            out_path = mp3_path
+        except Exception as e:
+            logger.warning(f"MP3 export failed, falling back to WAV: {e}")
 
     compressed_size = out_path.stat().st_size
     reduction_pct = round((1 - compressed_size / original_size) * 100, 1) if original_size > 0 else 0
@@ -175,7 +190,8 @@ async def compress_audio(
     for p in [tmp_path, wav_path]:
         p.unlink(missing_ok=True)
 
-    logger.info(f"Compressed: {original_size}B -> {compressed_size}B ({reduction_pct}% reduction)")
+    out_filename = out_path.name
+    logger.info(f"Compressed: {original_size}B -> {compressed_size}B ({reduction_pct}% reduction) [{out_ext}]")
 
     return CompressResponse(
         ok=True,

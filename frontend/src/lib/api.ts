@@ -211,12 +211,13 @@ export const api = {
       fd.append("method", method);
       return upload<TranscribeResult>("/api/tools/transcribe", fd);
     },
-    compress: (file: File, sampleRate: number, bitDepth: number, mono: boolean) => {
+    compress: (file: File, sampleRate: number, bitDepth: number, mono: boolean, outputFormat: string = "wav") => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("sample_rate", String(sampleRate));
       fd.append("bit_depth", String(bitDepth));
       fd.append("to_mono", String(mono));
+      fd.append("output_format", outputFormat);
       return upload<CompressResult>("/api/tools/compress", fd);
     },
     youtube: (url: string) =>
