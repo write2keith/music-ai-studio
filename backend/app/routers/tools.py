@@ -217,7 +217,7 @@ def _hz_to_note(hz: float) -> tuple[int, str]:
     return midi, f"{NOTE_NAMES[midi % 12]}{midi // 12 - 1}"
 
 
-def _detect_notes_fft(audio_path: str) -> dict:
+def _detect_notes_fft(audio_path: str, calibration: dict | None = None) -> dict:
     import numpy as np
     import scipy.io.wavfile as wav
 
@@ -229,8 +229,13 @@ def _detect_notes_fft(audio_path: str) -> dict:
     if max_val > 0:
         data = data / max_val
 
-    duration = len(data) / sr
+    params = calibration or {}
+    threshold_mult = params.get("threshold_multiplier", 1.5)
+    stability = params.get("stability_frames", 2)
+    min_duration_val = params.get("min_duration_sec", 0.04)
+    merge_gap_val = params.get("merge_gap_sec", 0.10)
 
+    duration = len(data) / sr
     window_sec = 0.08
     hop_sec = 0.03
     window_samples = int(sr * window_sec)
@@ -248,7 +253,7 @@ def _detect_notes_fft(audio_path: str) -> dict:
     rms_arr = np.array(rms_values)
     nonzero = rms_arr[rms_arr > 1e-6]
     noise_floor = float(np.median(nonzero)) if len(nonzero) > 0 else 1e-6
-    threshold = max(0.015, noise_floor * 1.5)
+    threshold = max(0.015, noise_floor * threshold_mult)
 
     fft_len = window_samples
     freqs = np.fft.rfftfreq(fft_len, 1.0 / sr)
@@ -324,12 +329,12 @@ def _detect_notes_fft(audio_path: str) -> dict:
 
         i = j
 
-    min_duration = 0.04
-    notes = [n for n in notes if n["end_time"] - n["start_time"] >= min_duration]
+    merge_gap = merge_gap_val
+    notes = [n for n in notes if n["end_time"] - n["start_time"] >= min_duration_val]
 
     merged = []
     for n in notes:
-        if merged and merged[-1]["pitch"] == n["pitch"] and n["start_time"] - merged[-1]["end_time"] < 0.10:
+        if merged and merged[-1]["pitch"] == n["pitch"] and n["start_time"] - merged[-1]["end_time"] < merge_gap:
             merged[-1]["end_time"] = n["end_time"]
             merged[-1]["velocity"] = round(max(merged[-1]["velocity"], n["velocity"]), 2)
         else:
@@ -491,6 +496,7 @@ def _detect_notes_polyphonic(audio_path: str) -> dict:
 async def transcribe_notes(
     file: UploadFile = File(...),
     method: str = Form(default="fft"),
+    store_id: str = Form(default="default"),
 ):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -524,7 +530,9 @@ async def transcribe_notes(
         if method == "polyphonic":
             result = _detect_notes_polyphonic(str(wav_path))
         else:
-            result = _detect_notes_fft(str(wav_path))
+            from ..services.calibration import get_detection_params
+            cal = get_detection_params(store_id)
+            result = _detect_notes_fft(str(wav_path), cal)
     except Exception as e:
         wav_path.unlink(missing_ok=True)
         if wav_path != tmp_path:
@@ -1264,7 +1272,10 @@ class GuitarTabResponse(BaseModel):
 
 
 @router.post("/guitar-tab", response_model=GuitarTabResponse)
-async def guitar_tab(file: UploadFile = File(...)):
+async def guitar_tab(
+    file: UploadFile = File(...),
+    store_id: str = Form(default="default"),
+):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1290,7 +1301,9 @@ async def guitar_tab(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
 
     try:
-        result = _detect_notes_fft(str(wav_path))
+        from ..services.calibration import get_detection_params
+        cal = get_detection_params(store_id)
+        result = _detect_notes_fft(str(wav_path), cal)
     except Exception as e:
         wav_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Note detection failed: {str(e)[:200]}")
@@ -1320,4 +1333,68 @@ async def guitar_tab(file: UploadFile = File(...)):
         notes=tab_notes,
         duration_secs=result["duration_secs"],
         note_count=len(tab_notes),
+    )
+
+
+# ── Learning / Calibration System ─────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    store_id: str = "default"
+    tool: str
+    action: str = "corrected"
+    note_pitch: int | None = None
+    note_name: str | None = None
+    original_pitch: int | None = None
+    original_note: str | None = None
+    detail: str = ""
+
+
+class CalibrationResponse(BaseModel):
+    ok: bool = True
+    store_id: str = "default"
+    total_corrections: int = 0
+    accuracy: float = 1.0
+    params: dict = {}
+    all_stores: dict = {}
+
+
+@router.post("/feedback", response_model=CalibrationResponse)
+async def submit_feedback(body: FeedbackRequest):
+    from ..services.calibration import record_correction, get_calibration
+
+    record_correction(
+        store_id=body.store_id,
+        tool=body.tool,
+        action=body.action,
+        note_pitch=body.note_pitch,
+        note_name=body.note_name,
+        original_pitch=body.original_pitch,
+        original_note=body.original_note,
+        detail=body.detail,
+    )
+
+    data = get_calibration(body.store_id)
+    return CalibrationResponse(
+        ok=True,
+        store_id=body.store_id,
+        total_corrections=data["total_corrections"],
+        accuracy=data.get("accuracy", 1.0),
+        params=data.get("params", {}),
+    )
+
+
+@router.get("/calibration", response_model=CalibrationResponse)
+async def get_calibration_status(store_id: str = "default"):
+    from ..services.calibration import get_calibration, get_calibration_stats
+
+    data = get_calibration(store_id)
+    all_stores = get_calibration_stats()
+
+    return CalibrationResponse(
+        ok=True,
+        store_id=store_id,
+        total_corrections=data["total_corrections"],
+        accuracy=data.get("accuracy", 1.0),
+        params=data.get("params", {}),
+        all_stores=all_stores,
     )

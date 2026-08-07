@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
-import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult, GuitarTabResult, TabNote } from "@/lib/api";
+import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult, GuitarTabResult, TabNote, CalibrationResponse } from "@/lib/api";
 import { PitchGraph } from "@/components/PitchGraph";
 
 interface DownloadResult {
@@ -125,6 +125,11 @@ export default function ToolsPage() {
   const [tabGenerating, setTabGenerating] = useState(false);
   const [tabError, setTabError] = useState("");
   const [tabResult, setTabResult] = useState<GuitarTabResult | null>(null);
+
+  const [correctionMode, setCorrectionMode] = useState(false);
+  const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
+  const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null);
+  const [editNoteValue, setEditNoteValue] = useState("");
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -305,6 +310,40 @@ export default function ToolsPage() {
     }
     setTabGenerating(false);
   }
+
+  async function submitNoteCorrection(
+    tool: string,
+    originalNote: TranscribeNote | TabNote,
+    correctedName: string,
+  ) {
+    const correctedPitch = nameToMidi(correctedName);
+    if (correctedPitch < 0) return;
+
+    try {
+      const cal = await api.tools.submitFeedback({
+        store_id: "default",
+        tool,
+        action: "corrected",
+        note_pitch: correctedPitch,
+        note_name: correctedName,
+        original_pitch: originalNote.pitch,
+        original_note: originalNote.note_name,
+        detail: `User corrected ${originalNote.note_name} to ${correctedName}`,
+      });
+      setCalibration(cal);
+      setEditingNoteIdx(null);
+      setEditNoteValue("");
+    } catch {}
+  }
+
+  async function loadCalibration() {
+    try {
+      const cal = await api.tools.getCalibration("default");
+      setCalibration(cal);
+    } catch {}
+  }
+
+  useEffect(() => { loadCalibration(); }, []);
 
   async function startRecording() {
     try {
@@ -931,7 +970,23 @@ export default function ToolsPage() {
                 <span className="text-xs text-daw-text-dim">
                   {formatDuration(transcribeResult.duration_secs)} &middot; {transcribeResult.method.toUpperCase()}
                 </span>
+                {calibration && calibration.total_corrections > 0 && (
+                  <span className="text-[10px] text-daw-green">
+                    accuracy {Math.round(calibration.accuracy * 100)}%
+                  </span>
+                )}
               </div>
+              <button
+                onClick={() => setCorrectionMode(!correctionMode)}
+                className={cn(
+                  "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+                  correctionMode
+                    ? "border-amber-400/50 text-amber-300 bg-amber-400/10"
+                    : "border-daw-border text-daw-text-dim hover:text-daw-text"
+                )}
+              >
+                {correctionMode ? "Done Correcting" : "Correct Notes"}
+              </button>
             </div>
 
             <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
@@ -943,9 +998,30 @@ export default function ToolsPage() {
                   <span className="w-14 text-daw-text-dim tabular-nums">
                     {note.start_time.toFixed(2)}s
                   </span>
-                  <span className="w-10 font-mono font-bold text-daw-accent">
-                    {note.note_name}
-                  </span>
+                  {correctionMode && editingNoteIdx === i ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        submitNoteCorrection("transcribe", note, editNoteValue);
+                      }}
+                      className="flex items-center gap-1"
+                    >
+                      <input
+                        type="text"
+                        value={editNoteValue}
+                        onChange={(e) => setEditNoteValue(e.target.value)}
+                        placeholder={note.note_name}
+                        className="w-12 bg-daw-surface-2 border border-amber-400/30 rounded px-1.5 py-0.5 text-[11px] font-mono text-amber-300 outline-none"
+                        autoFocus
+                      />
+                      <button type="submit" className="text-[10px] text-daw-green hover:underline">ok</button>
+                      <button type="button" onClick={() => { setEditingNoteIdx(null); setEditNoteValue(""); }} className="text-[10px] text-daw-text-dim hover:underline">cancel</button>
+                    </form>
+                  ) : (
+                    <span className="w-10 font-mono font-bold text-daw-accent">
+                      {note.note_name}
+                    </span>
+                  )}
                   <span className="text-daw-text-dim tabular-nums">
                     MIDI {note.pitch}
                   </span>
@@ -960,6 +1036,15 @@ export default function ToolsPage() {
                   <span className="text-[10px] text-daw-text-dim tabular-nums w-10 text-right">
                     {(note.end_time - note.start_time).toFixed(2)}s
                   </span>
+                  {correctionMode && editingNoteIdx !== i && (
+                    <button
+                      onClick={() => { setEditingNoteIdx(i); setEditNoteValue(note.note_name); }}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 shrink-0"
+                      title="Correct this note"
+                    >
+                      edit
+                    </button>
+                  )}
                 </div>
               ))}
               {transcribeResult.notes.length > 50 && (
@@ -1287,13 +1372,31 @@ export default function ToolsPage() {
               exit={{ opacity: 0, y: -12 }}
               className="space-y-4 border border-orange-400/20 rounded-xl p-4"
             >
-              <div className="flex items-center gap-2">
-                <Badge variant="accent" className="text-[10px]">
-                  {tabResult.note_count} notes
-                </Badge>
-                <span className="text-xs text-daw-text-dim">
-                  {formatDuration(tabResult.duration_secs)} &middot; Standard EADGBE
-                </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="accent" className="text-[10px]">
+                    {tabResult.note_count} notes
+                  </Badge>
+                  <span className="text-xs text-daw-text-dim">
+                    {formatDuration(tabResult.duration_secs)} &middot; Standard EADGBE
+                  </span>
+                  {calibration && calibration.total_corrections > 0 && (
+                    <span className="text-[10px] text-daw-green">
+                      accuracy {Math.round(calibration.accuracy * 100)}%
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setCorrectionMode(!correctionMode)}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+                    correctionMode
+                      ? "border-amber-400/50 text-amber-300 bg-amber-400/10"
+                      : "border-daw-border text-daw-text-dim hover:text-daw-text"
+                  )}
+                >
+                  {correctionMode ? "Done Correcting" : "Correct Notes"}
+                </button>
               </div>
 
               <div className="overflow-x-auto">
@@ -1341,9 +1444,38 @@ export default function ToolsPage() {
                   {(tabResult.notes as TabNote[]).map((note, i) => (
                     <div key={i} className="flex items-center gap-2 px-2 py-1 rounded bg-daw-surface-3/50 text-xs">
                       <span className="w-12 text-daw-text-dim tabular-nums">{note.start_time.toFixed(2)}s</span>
-                      <span className="font-mono font-bold text-orange-300 w-10">{note.note_name}</span>
+                      {correctionMode && editingNoteIdx === i ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            submitNoteCorrection("guitar-tab", note, editNoteValue);
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <input
+                            type="text"
+                            value={editNoteValue}
+                            onChange={(e) => setEditNoteValue(e.target.value)}
+                            placeholder={note.note_name}
+                            className="w-12 bg-daw-surface-2 border border-amber-400/30 rounded px-1.5 py-0.5 text-[11px] font-mono text-amber-300 outline-none"
+                            autoFocus
+                          />
+                          <button type="submit" className="text-[10px] text-daw-green hover:underline">ok</button>
+                          <button type="button" onClick={() => { setEditingNoteIdx(null); setEditNoteValue(""); }} className="text-[10px] text-daw-text-dim hover:underline">cancel</button>
+                        </form>
+                      ) : (
+                        <span className="font-mono font-bold text-orange-300 w-10">{note.note_name}</span>
+                      )}
                       <span className="text-daw-text-dim">String {note.string_name}</span>
                       <span className="font-mono font-bold text-daw-text">Fret {note.fret}</span>
+                      {correctionMode && editingNoteIdx !== i && (
+                        <button
+                          onClick={() => { setEditingNoteIdx(i); setEditNoteValue(note.note_name); }}
+                          className="text-[10px] text-amber-400 hover:text-amber-300"
+                        >
+                          edit
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1858,4 +1990,13 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function nameToMidi(name: string): number {
+  const match = name.match(/^([A-G]#?)(\d+)$/i);
+  if (!match) return -1;
+  const noteIdx = NOTE_NAMES_SHORT.findIndex((n) => n.toUpperCase() === match[1].toUpperCase());
+  if (noteIdx < 0) return -1;
+  const octave = parseInt(match[2], 10);
+  return (octave + 1) * 12 + noteIdx;
 }

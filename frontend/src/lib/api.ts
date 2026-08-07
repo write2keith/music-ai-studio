@@ -271,6 +271,14 @@ export const api = {
       fd.append("file", file);
       return upload<GuitarTabResult>("/api/tools/guitar-tab", fd);
     },
+    submitFeedback: (feedback: FeedbackRequest) =>
+      request<CalibrationResponse>("/api/tools/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(feedback),
+      }),
+    getCalibration: (storeId: string = "default") =>
+      request<CalibrationResponse>(`/api/tools/calibration?store_id=${storeId}`),
   },
 };
 
@@ -406,4 +414,24 @@ export interface GuitarTabResult {
   duration_secs: number;
   note_count: number;
   tuning: string[];
+}
+
+export interface FeedbackRequest {
+  store_id: string;
+  tool: string;
+  action: "corrected" | "added" | "removed";
+  note_pitch?: number;
+  note_name?: string;
+  original_pitch?: number;
+  original_note?: string;
+  detail: string;
+}
+
+export interface CalibrationResponse {
+  ok: boolean;
+  store_id: string;
+  total_corrections: number;
+  accuracy: number;
+  params: Record<string, number>;
+  all_stores: Record<string, { total_corrections: number; accuracy: number; params: Record<string, number> }>;
 }
