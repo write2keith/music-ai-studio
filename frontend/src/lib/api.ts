@@ -203,6 +203,30 @@ export const api = {
       return upload<AudioResult>("/api/edit/effects", fd);
     },
   },
+
+  tools: {
+    transcribe: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<TranscribeResult>("/api/tools/transcribe", fd);
+    },
+  },
 };
 
 export { ApiError };
+
+interface TranscribeNote {
+  start_time: number;
+  end_time: number;
+  pitch: number;
+  note_name: string;
+  velocity: number;
+}
+
+interface TranscribeResult {
+  ok: boolean;
+  notes: TranscribeNote[];
+  duration_secs: number;
+  method: string;
+  note_count: number;
+}

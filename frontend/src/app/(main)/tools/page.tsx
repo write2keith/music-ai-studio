@@ -173,21 +173,7 @@ export default function ToolsPage() {
     setTranscribeResult(null);
 
     try {
-      const fd = new FormData();
-      fd.append("file", transcribeFile);
-
-      const res = await fetch("/api/tools/transcribe", {
-        method: "POST",
-        credentials: "include",
-        body: fd,
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || !data.ok) {
-        setTranscribeError((data && data.detail) || `Server error (${res.status})`);
-        return;
-      }
-
+      const data = await api.tools.transcribe(transcribeFile);
       setTranscribeResult(data);
     } catch {
       setTranscribeError("Network error");
