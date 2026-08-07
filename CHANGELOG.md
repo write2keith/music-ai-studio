@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.3.0] - 2026-08-07
+
+### Added
+- **Vocal Coach** — upload any song (vocals auto-separated via demucs), record yourself singing, compare pitch accuracy
+  - Backend: `POST /api/tools/vocal-prep` (async separation + pitch extraction), `GET /api/tools/vocal-prep/{job_id}` (polling), `POST /api/tools/vocal-score` (pitch comparison + grading)
+  - Live pitch detection during recording via Web Audio API autocorrelation
+  - PitchGraph canvas component showing dual-line pitch overlay (cyan reference, purple user) on MIDI note grid
+  - Circular score gauge with S/A/B/C/D/F grade, frame-by-frame pitch comparison
+- **Polyphonic note detection** — detects up to 6 simultaneous notes via iterative harmonic subtraction on FFT spectrum
+  - FFT method selector toggle (Mono/Polyphonic) on the tools page
+  - Works for guitar chords, piano voicings, multi-note instrument stems
+- **Multitrack DAW Editor** at `/editor`
+  - 4 starter tracks (Vocals, Guitar, Drums, Bass) with color-coded labels
+  - Per-track controls: arm for recording, mute, solo, volume slider
+  - Waveform display for recorded audio via Web Audio API
+  - Transport bar: play, pause, stop, record, BPM display
+  - Export Mix — mixes all unmuted tracks to downloadable WAV
+- **MP3 output** in Audio Compressor — export compressed audio as MP3 at 128kbps via pydub/ffmpeg, WAV/MP3 format toggle
+- **Compressor support for non-WAV input** — MP3/M4A/FLAC/OGG input via pydub fallback
+
+### Fixed
+- FFT note detection rewritten: adaptive threshold (1.5x median noise floor), 2-frame stability hysteresis, 80ms windows, 0.04s minimum duration, parabolic interpolation for sub-bin accuracy — eliminates 5053-note false positive and 2-note false negative extremes
+- Compress and YouTube endpoints now route through API client with `API_BASE` support, bypassing Turbopack proxy
+- Next.js `proxyClientMaxBodySize` raised to 500MB to handle large WAV uploads through proxy
+- Catch-all frontend route no longer intercepts `/api/settings` (returns 404 instead of 500)
+- All error catch blocks now show actual error messages instead of generic "Network error"
+- TypeScript: exported `TrackData`, `CompressResult`, `TranscribeResult`, `TranscribeNote` types
+- TypeScript: fixed `SAMPLE_RATES`/`BIT_DEPTHS` missing constants in tools page
+- TypeScript: fixed `toast()` destructuring in CommunityFeed, TrackCard, CreditWidget (signature + argument order)
+- Progress component: added `orange` color variant
+- Settings router: added root GET route fallback
+- api.ts: removed duplicate `upload()` function definitions, added missing `request()` function and `ApiError` class
+
+### Changed
+- Vocal Coach replaces standalone reference upload with full-song auto-separation workflow
+- `vocal_prep` task handler added to queue system for async stem separation + pitch extraction
+- Tools page now has 4 sections: YouTube, Compressor, Note Detection, Vocal Coach
+
 ## [2.2.0] - 2026-08-06
 
 ### Added
