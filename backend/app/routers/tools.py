@@ -117,9 +117,6 @@ async def compress_audio(
     import numpy as np
     import scipy.io.wavfile as wav
 
-    if file.content_type and not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Invalid file type")
-
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -286,9 +283,6 @@ def _detect_notes_fft(audio_path: str) -> dict:
 async def transcribe_notes(
     file: UploadFile = File(...),
 ):
-    if file.content_type and not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Invalid file type")
-
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 

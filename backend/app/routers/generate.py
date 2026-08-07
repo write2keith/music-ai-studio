@@ -109,9 +109,6 @@ async def separate(
     model: str = Form(default="htdemucs"),
 ):
     try:
-        if file.content_type and not file.content_type.startswith("audio/"):
-            raise HTTPException(status_code=400, detail="Invalid file type")
-
         settings = get_settings()
         upload_dir = Path(settings.UPLOAD_DIR)
         upload_dir.mkdir(parents=True, exist_ok=True)
