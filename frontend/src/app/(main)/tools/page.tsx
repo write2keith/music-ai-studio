@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Download,
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
+import { PitchGraph } from "@/components/PitchGraph";
 
 interface DownloadResult {
   title: string;
@@ -94,6 +95,19 @@ export default function ToolsPage() {
   const [transcribeError, setTranscribeError] = useState("");
   const [transcribeResult, setTranscribeResult] = useState<TranscribeResult | null>(null);
 
+  const [vocalRefFile, setVocalRefFile] = useState<File | null>(null);
+  const [vocalRecording, setVocalRecording] = useState<File | null>(null);
+  const [vocalRecordingUrl, setVocalRecordingUrl] = useState<string>("");
+  const [vocalRefUrl, setVocalRefUrl] = useState<string>("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const [scoring, setScoring] = useState(false);
+  const [vocalScore, setVocalScore] = useState<any>(null);
+  const [vocalError, setVocalError] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
@@ -157,6 +171,68 @@ export default function ToolsPage() {
     }
     setTranscribing(false);
   }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        setVocalRecordingUrl(url);
+        const file = new File([blob], "recording.webm", { type: "audio/webm" });
+        setVocalRecording(file);
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      setRecordTime(0);
+      timerRef.current = setInterval(() => {
+        setRecordTime((t) => t + 1);
+      }, 1000);
+
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      setVocalError("Microphone access denied");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+  }
+
+  async function handleVocalScore() {
+    if (!vocalRefFile || !vocalRecording) return;
+    setScoring(true);
+    setVocalError("");
+    setVocalScore(null);
+
+    try {
+      const data = await api.tools.vocalScore(vocalRefFile, vocalRecording);
+      setVocalScore(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setVocalError(msg || "Scoring failed");
+    }
+    setScoring(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (vocalRecordingUrl) URL.revokeObjectURL(vocalRecordingUrl);
+      if (vocalRefUrl) URL.revokeObjectURL(vocalRefUrl);
+    };
+  }, [vocalRecordingUrl, vocalRefUrl]);
 
   const isPlaying = result && audioPlayer.isCurrentUrl(result.url) && audioPlayer.isPlaying;
   const isPlayingCompressed = compressResult && audioPlayer.isCurrentUrl(compressResult.url) && audioPlayer.isPlaying;
@@ -660,6 +736,200 @@ export default function ToolsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Vocal Coach */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Mic className="w-5 h-5 text-rose-400" />
+          Vocal Coach
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Upload a reference vocal track, record yourself singing, then compare pitch accuracy.
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        {/* Reference Upload */}
+        <div>
+          <p className="text-xs text-daw-text-dim mb-2">1. Upload reference vocals (separated vocal stem)</p>
+          <div
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files[0];
+              if (f) {
+                setVocalRefFile(f);
+                setVocalRefUrl(URL.createObjectURL(f));
+                setVocalScore(null);
+              }
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onClick={() => document.getElementById("vocal-ref-input")?.click()}
+            className={cn(
+              "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
+              vocalRefFile
+                ? "border-daw-green/50 bg-daw-green/5"
+                : "border-daw-border hover:border-rose-400/40 hover:bg-daw-surface-2"
+            )}
+          >
+            <input
+              id="vocal-ref-input"
+              type="file"
+              accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  setVocalRefFile(f);
+                  setVocalRefUrl(URL.createObjectURL(f));
+                  setVocalScore(null);
+                }
+              }}
+            />
+            {vocalRefFile ? (
+              <div className="flex items-center justify-center gap-2 text-daw-green text-sm">
+                <FileAudio className="w-4 h-4" />
+                {vocalRefFile.name}
+                {vocalRefUrl && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); audioPlayer.play(vocalRefUrl); }}
+                    className="p-1 rounded hover:bg-daw-surface-2"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-daw-text-muted">Drop reference vocal stem here</p>
+            )}
+          </div>
+        </div>
+
+        {/* Recording */}
+        <div>
+          <p className="text-xs text-daw-text-dim mb-2">2. Record your voice</p>
+          <div className="flex items-center gap-3">
+            {!isRecording ? (
+              <Button
+                onClick={startRecording}
+                disabled={!!vocalRecording}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                {vocalRecording ? "Recorded" : "Start Recording"}
+              </Button>
+            ) : (
+              <Button
+                onClick={stopRecording}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <div className="w-3 h-3 rounded-sm bg-red-500 animate-pulse" />
+                Stop ({recordTime}s)
+              </Button>
+            )}
+            {vocalRecording && (
+              <>
+                <button
+                  onClick={() => audioPlayer.play(vocalRecordingUrl)}
+                  className="p-2 rounded-lg bg-daw-surface-2 hover:bg-daw-surface-3 transition-colors"
+                >
+                  <Play className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-daw-text-dim">
+                  {vocalRecording.size > 0 ? formatSize(vocalRecording.size) : ""}
+                </span>
+                <button
+                  onClick={() => {
+                    setVocalRecording(null);
+                    setVocalRecordingUrl("");
+                  }}
+                  className="text-xs text-daw-text-dim hover:text-daw-text"
+                >
+                  re-record
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Score Button */}
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleVocalScore}
+          disabled={scoring || !vocalRefFile || !vocalRecording}
+        >
+          {scoring ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Analyzing pitch...
+            </>
+          ) : (
+            "Score My Performance"
+          )}
+        </Button>
+
+        {vocalError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {vocalError}
+          </div>
+        )}
+
+        {/* Score Result */}
+        <AnimatePresence>
+          {vocalScore && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-4">
+                <div className="relative w-20 h-20 shrink-0">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="15.5" fill="none" stroke="#2a2a3e" strokeWidth="3" />
+                    <circle
+                      cx="18" cy="18" r="15.5"
+                      fill="none"
+                      stroke={vocalScore.score >= 85 ? "#22c55e" : vocalScore.score >= 55 ? "#eab308" : "#ef4444"}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(vocalScore.score / 100) * 97.4} 97.4`}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-lg font-bold text-daw-text">{vocalScore.score}</span>
+                    <span className="text-[10px] text-daw-text-dim">/100</span>
+                  </div>
+                </div>
+                <div>
+                  <div className={cn(
+                    "text-2xl font-bold",
+                    vocalScore.grade === "S" || vocalScore.grade === "A" ? "text-green-400" :
+                    vocalScore.grade === "B" || vocalScore.grade === "C" ? "text-yellow-400" : "text-red-400"
+                  )}>
+                    Grade {vocalScore.grade}
+                  </div>
+                  <p className="text-xs text-daw-text-dim">
+                    {vocalScore.matched_frames}/{vocalScore.total_frames} frames in pitch
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-daw-border overflow-hidden">
+                <PitchGraph
+                  refPitch={vocalScore.ref_pitch}
+                  userPitch={vocalScore.user_pitch}
+                  width={568}
+                  height={200}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

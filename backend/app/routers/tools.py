@@ -542,3 +542,168 @@ async def transcribe_notes(
         method=result["method"],
         note_count=len(result["notes"]),
     )
+
+
+class VocalScoreResponse(BaseModel):
+    ok: bool = True
+    score: float = 0.0
+    max_score: float = 100.0
+    grade: str = "F"
+    ref_pitch: list[dict] = []
+    user_pitch: list[dict] = []
+    ref_duration: float = 0.0
+    user_duration: float = 0.0
+    total_frames: int = 0
+    matched_frames: int = 0
+
+
+def _extract_pitch_contour(audio_path: str) -> list[dict]:
+    import numpy as np
+    import scipy.io.wavfile as wav
+
+    sr, data = wav.read(str(audio_path))
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    data = data.astype(np.float32)
+    max_val = np.max(np.abs(data))
+    if max_val > 0:
+        data = data / max_val
+
+    hop_sec = 0.02
+    window_sec = 0.06
+    window_samples = int(sr * window_sec)
+    hop_samples = int(sr * hop_sec)
+    num_windows = max(1, (len(data) - window_samples) // hop_samples + 1)
+    if window_samples < 1:
+        return []
+
+    fft_len = max(2048, 2 ** int(np.ceil(np.log2(window_samples))))
+    contour = []
+
+    for i in range(num_windows):
+        start = i * hop_samples
+        frame = data[start : start + window_samples]
+        rms = float(np.sqrt(np.mean(frame ** 2)))
+
+        if rms < 0.01:
+            contour.append({"time": round(i * hop_sec + window_sec / 2, 3), "midi": -1})
+            continue
+
+        windowed = frame * np.hanning(len(frame))
+        fft = np.abs(np.fft.rfft(windowed, n=fft_len))
+        freqs = np.fft.rfftfreq(fft_len, 1.0 / sr)
+
+        valid = (freqs >= 65) & (freqs <= 1200)
+        if not np.any(valid):
+            contour.append({"time": round(i * hop_sec + window_sec / 2, 3), "midi": -1})
+            continue
+
+        peak_idx = np.argmax(fft[valid])
+        freq = freqs[valid][peak_idx]
+        midi, _ = _hz_to_note(freq)
+        contour.append({"time": round(i * hop_sec + window_sec / 2, 3), "midi": midi})
+
+    return contour
+
+
+def _score_contours(ref: list[dict], user: list[dict]) -> dict:
+    ref_len = len(ref)
+    user_len = len(user)
+
+    if ref_len == 0 or user_len == 0:
+        return {"score": 0, "total_frames": 0, "matched_frames": 0, "grade": "F"}
+
+    ratio = ref_len / max(user_len, 1)
+    aligned_user = []
+    for i in range(ref_len):
+        ui = min(int(i / max(ratio, 0.01)), user_len - 1)
+        aligned_user.append(user[ui]["midi"])
+
+    matched = 0.0
+    total = 0
+    for i in range(ref_len):
+        r_midi = ref[i]["midi"]
+        u_midi = aligned_user[i]
+        if r_midi < 0 or u_midi < 0:
+            continue
+        total += 1
+        diff = abs(r_midi - u_midi)
+        if diff == 0:
+            matched += 1.0
+        elif diff <= 1:
+            matched += 0.75
+        elif diff <= 2:
+            matched += 0.5
+        elif diff <= 3:
+            matched += 0.25
+
+    score = round((matched / max(total, 1)) * 100, 1)
+    grade = "S" if score >= 95 else "A" if score >= 85 else "B" if score >= 70 else "C" if score >= 55 else "D" if score >= 40 else "F"
+
+    return {
+        "score": score,
+        "total_frames": total,
+        "matched_frames": int(matched),
+        "grade": grade,
+    }
+
+
+@router.post("/vocal-score", response_model=VocalScoreResponse)
+async def vocal_score(
+    reference: UploadFile = File(...),
+    recording: UploadFile = File(...),
+):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = []
+    contours = []
+
+    for label, upload in [("ref", reference), ("user", recording)]:
+        content = await upload.read()
+        ext = Path(upload.filename).suffix if upload.filename else ".wav"
+        tmp_path = output_dir / f"vocal_{label}_{uuid.uuid4().hex[:12]}{ext}"
+        tmp_path.write_bytes(content)
+
+        wav_path = tmp_path
+        try:
+            import scipy.io.wavfile
+            scipy.io.wavfile.read(str(wav_path))
+        except Exception:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(str(tmp_path))
+                wav_path = output_dir / f"vocal_{label}_{uuid.uuid4().hex[:12]}.wav"
+                audio.export(str(wav_path), format="wav")
+                tmp_path.unlink(missing_ok=True)
+                scipy.io.wavfile.read(str(wav_path))
+            except Exception as e:
+                for p in set(paths + [tmp_path, wav_path]):
+                    p.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"Cannot read {label} audio: {str(e)[:100]}")
+
+        paths.extend([tmp_path, wav_path])
+        contour = _extract_pitch_contour(str(wav_path))
+        contours.append(contour)
+
+    ref_contour, user_contour = contours
+    result = _score_contours(ref_contour, user_contour)
+
+    for p in set(paths):
+        p.unlink(missing_ok=True)
+
+    ref_dur = ref_contour[-1]["time"] if ref_contour else 0
+    user_dur = user_contour[-1]["time"] if user_contour else 0
+
+    return VocalScoreResponse(
+        ok=True,
+        score=result["score"],
+        max_score=100.0,
+        grade=result["grade"],
+        ref_pitch=ref_contour,
+        user_pitch=user_contour,
+        ref_duration=round(ref_dur, 1),
+        user_duration=round(user_dur, 1),
+        total_frames=result["total_frames"],
+        matched_frames=result["matched_frames"],
+    )

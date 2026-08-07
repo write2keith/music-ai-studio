@@ -226,6 +226,12 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       }),
+    vocalScore: (reference: File, recording: File) => {
+      const fd = new FormData();
+      fd.append("reference", reference);
+      fd.append("recording", recording);
+      return upload<VocalScoreResult>("/api/tools/vocal-score", fd);
+    },
   },
 };
 
@@ -267,4 +273,22 @@ interface YouTubeResult {
   url: string;
   duration_secs: number;
   thumbnail: string;
+}
+
+interface PitchPoint {
+  time: number;
+  midi: number;
+}
+
+interface VocalScoreResult {
+  ok: boolean;
+  score: number;
+  max_score: number;
+  grade: string;
+  ref_pitch: PitchPoint[];
+  user_pitch: PitchPoint[];
+  ref_duration: number;
+  user_duration: number;
+  total_frames: number;
+  matched_frames: number;
 }
