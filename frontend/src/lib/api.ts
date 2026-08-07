@@ -279,6 +279,12 @@ export const api = {
       }),
     getCalibration: (storeId: string = "default") =>
       request<CalibrationResponse>(`/api/tools/calibration?store_id=${storeId}`),
+    midiExport: (notes: { pitch: number; velocity: number; start_time: number; end_time: number }[], tempo: number = 120) =>
+      request<{ ok: boolean; filename: string; url: string }>("/api/tools/midi-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes, tempo }),
+      }),
   },
 };
 

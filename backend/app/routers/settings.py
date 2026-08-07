@@ -104,3 +104,78 @@ async def update_generation_settings(body: GenerationSettings, request: Request)
         "model": effective_model,
         "token_set": bool(_active_hf_token),
     }
+
+
+# ── Separation Settings ───────────────────────────────────────
+
+class SeparationSettings(BaseModel):
+    mode: str = "auto"
+    hf_token: str = ""
+
+_active_sep_mode = "auto"
+_active_sep_token = ""
+
+SEPARATION_PROVIDERS = [
+    {
+        "id": "auto",
+        "name": "Auto-detect",
+        "description": "Use local Demucs if torch available, cloud otherwise",
+        "type": "auto",
+        "needs_token": False,
+    },
+    {
+        "id": "local",
+        "name": "Local Demucs",
+        "description": "Run Demucs on your machine (CPU or GPU, ~8 min per song on CPU)",
+        "type": "local",
+        "needs_token": False,
+        "needs_hardware": "CPU or GPU, 4GB+ RAM",
+    },
+    {
+        "id": "cloud",
+        "name": "Cloud (HuggingFace)",
+        "description": "Fast cloud separation via HuggingFace Inference API",
+        "type": "cloud",
+        "needs_token": True,
+        "free_tier": True,
+    },
+]
+
+
+@router.get("/separation")
+async def get_separation_settings():
+    import torch
+    local_available = True
+    try:
+        from demucs import pretrained
+        pretrained.get_model("htdemucs")
+    except Exception:
+        local_available = False
+
+    return {
+        "current_mode": _active_sep_mode or settings.SEPARATION_MODE,
+        "providers": SEPARATION_PROVIDERS,
+        "local_available": local_available,
+        "cloud_available": bool(settings.HF_TOKEN or _active_sep_token),
+        "hf_token_configured": bool(settings.HF_TOKEN or _active_sep_token),
+        "gpu_available": torch.cuda.is_available() if local_available else False,
+    }
+
+
+@router.post("/separation")
+async def update_separation_settings(body: SeparationSettings):
+    global _active_sep_mode, _active_sep_token
+
+    valid_modes = {p["id"] for p in SEPARATION_PROVIDERS}
+    if body.mode not in valid_modes:
+        return {"error": f"Unknown mode: {body.mode}"}, 400
+
+    _active_sep_mode = body.mode
+    if body.hf_token:
+        _active_sep_token = body.hf_token
+
+    return {
+        "ok": True,
+        "mode": _active_sep_mode,
+        "token_set": bool(settings.HF_TOKEN or _active_sep_token),
+    }

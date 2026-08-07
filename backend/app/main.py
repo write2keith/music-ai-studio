@@ -118,6 +118,14 @@ async def serve_stem(model: str, source: str, filename: str):
     raise HTTPException(status_code=404, detail="Stem file not found")
 
 
+@app.get("/api/audio/midi/{filename}")
+async def serve_midi(filename: str):
+    filepath = Path(settings.UPLOAD_DIR) / filename
+    if filepath.exists():
+        return FileResponse(filepath, media_type="audio/midi")
+    raise HTTPException(status_code=404, detail="MIDI file not found")
+
+
 @app.get("/api/audio/edits/{filename}")
 async def serve_edit(filename: str):
     filepath = Path(settings.EDITS_DIR) / filename

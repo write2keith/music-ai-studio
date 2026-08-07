@@ -130,6 +130,7 @@ export default function ToolsPage() {
   const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
   const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null);
   const [editNoteValue, setEditNoteValue] = useState("");
+  const [midiExportUrl, setMidiExportUrl] = useState<string>("");
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -340,6 +341,15 @@ export default function ToolsPage() {
     try {
       const cal = await api.tools.getCalibration("default");
       setCalibration(cal);
+    } catch {}
+  }
+
+  async function exportMidi(
+    notes: { pitch: number; velocity: number; start_time: number; end_time: number }[],
+  ) {
+    try {
+      const res = await api.tools.midiExport(notes, 120);
+      setMidiExportUrl(res.url);
     } catch {}
   }
 
@@ -1015,45 +1025,64 @@ export default function ToolsPage() {
                         autoFocus
                       />
                       <button type="submit" className="text-[10px] text-daw-green hover:underline">ok</button>
-                      <button type="button" onClick={() => { setEditingNoteIdx(null); setEditNoteValue(""); }} className="text-[10px] text-daw-text-dim hover:underline">cancel</button>
-                    </form>
-                  ) : (
-                    <span className="w-10 font-mono font-bold text-daw-accent">
-                      {note.note_name}
-                    </span>
-                  )}
-                  <span className="text-daw-text-dim tabular-nums">
-                    MIDI {note.pitch}
-                  </span>
-                  <div className="flex-1">
-                    <div className="h-1.5 rounded-full bg-daw-surface-2 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-violet-400 to-daw-accent transition-all"
-                        style={{ width: `${(note.end_time - note.start_time) * 60}%` }}
-                      />
+                  <button type="button" onClick={() => { setEditingNoteIdx(null); setEditNoteValue(""); }} className="text-[10px] text-daw-text-dim hover:underline">cancel</button>
+                        </form>
+                      ) : (
+                        <span className="w-10 font-mono font-bold text-daw-accent">
+                          {note.note_name}
+                        </span>
+                      )}
+                      <span className="text-daw-text-dim tabular-nums">
+                        MIDI {note.pitch}
+                      </span>
+                      <div className="flex-1">
+                        <div className="h-1.5 rounded-full bg-daw-surface-2 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-violet-400 to-daw-accent transition-all"
+                            style={{ width: `${(note.end_time - note.start_time) * 60}%` }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-daw-text-dim tabular-nums w-10 text-right">
+                        {(note.end_time - note.start_time).toFixed(2)}s
+                      </span>
+                      {correctionMode && editingNoteIdx !== i && (
+                        <button
+                          onClick={() => { setEditingNoteIdx(i); setEditNoteValue(note.note_name); }}
+                          className="text-[10px] text-amber-400 hover:text-amber-300 shrink-0"
+                          title="Correct this note"
+                        >
+                          edit
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  <span className="text-[10px] text-daw-text-dim tabular-nums w-10 text-right">
-                    {(note.end_time - note.start_time).toFixed(2)}s
-                  </span>
-                  {correctionMode && editingNoteIdx !== i && (
-                    <button
-                      onClick={() => { setEditingNoteIdx(i); setEditNoteValue(note.note_name); }}
-                      className="text-[10px] text-amber-400 hover:text-amber-300 shrink-0"
-                      title="Correct this note"
-                    >
-                      edit
-                    </button>
+                  ))}
+                  {transcribeResult.notes.length > 50 && (
+                    <p className="text-[10px] text-daw-text-dim text-center py-1">
+                      +{transcribeResult.notes.length - 50} more notes
+                    </p>
                   )}
                 </div>
-              ))}
-              {transcribeResult.notes.length > 50 && (
-                <p className="text-[10px] text-daw-text-dim text-center py-1">
-                  +{transcribeResult.notes.length - 50} more notes
-                </p>
-              )}
-            </div>
-          </motion.div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => exportMidi(transcribeResult.notes)}
+                    className="daw-button daw-button-secondary text-xs inline-flex items-center gap-1"
+                  >
+                    <Download className="w-3 h-3" />
+                    Export MIDI
+                  </button>
+                  {midiExportUrl && (
+                    <a
+                      href={midiExportUrl}
+                      download
+                      className="text-[10px] text-daw-green hover:underline self-center"
+                    >
+                      Download
+                    </a>
+                  )}
+                </div>
+              </motion.div>
         )}
       </AnimatePresence>
 
@@ -1480,6 +1509,21 @@ export default function ToolsPage() {
                   ))}
                 </div>
               </details>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => exportMidi((tabResult.notes as TabNote[]).map((n) => ({ pitch: n.pitch, velocity: n.velocity, start_time: n.start_time, end_time: n.end_time })))}
+                  className="daw-button daw-button-secondary text-xs inline-flex items-center gap-1"
+                >
+                  <Download className="w-3 h-3" />
+                  Export MIDI
+                </button>
+                {midiExportUrl && (
+                  <a href={midiExportUrl} download className="text-[10px] text-daw-green hover:underline self-center">
+                    Download .mid
+                  </a>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

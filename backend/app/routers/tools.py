@@ -1349,6 +1349,11 @@ class FeedbackRequest(BaseModel):
     detail: str = ""
 
 
+class MidiExportRequest(BaseModel):
+    notes: list[dict]
+    tempo: int = 120
+
+
 class CalibrationResponse(BaseModel):
     ok: bool = True
     store_id: str = "default"
@@ -1397,4 +1402,88 @@ async def get_calibration_status(store_id: str = "default"):
         accuracy=data.get("accuracy", 1.0),
         params=data.get("params", {}),
         all_stores=all_stores,
+    )
+
+
+# ── MIDI Export ───────────────────────────────────────────────
+
+def _write_midi(notes: list[dict], tempo: int) -> bytes:
+    from struct import pack
+    import io
+
+    ticks_per_quarter = 480
+    us_per_quarter = 60_000_000 // tempo
+
+    def write_var_len(val):
+        buf = bytearray()
+        buf.append(val & 0x7F)
+        val >>= 7
+        while val:
+            buf.append(0x80 | (val & 0x7F))
+            val >>= 7
+        buf.reverse()
+        return bytes(buf)
+
+    track_events = bytearray()
+
+    # Set tempo
+    track_events += b'\x00'
+    track_events += b'\xFF\x51\x03'
+    track_events += pack('>I', us_per_quarter)[1:]
+
+    last_tick = 0
+    for n in notes:
+        pitch = n.get("pitch", 60)
+        velocity = max(1, min(127, int(n.get("velocity", 0.7) * 127)))
+        start_sec = n.get("start_time", 0)
+        end_sec = n.get("end_time", start_sec + 0.2)
+        start_tick = int(start_sec * tempo / 60 * ticks_per_quarter)
+        end_tick = int(end_sec * tempo / 60 * ticks_per_quarter)
+
+        delta_on = max(0, start_tick - last_tick)
+        track_events += write_var_len(delta_on)
+        track_events += pack('BBB', 0x90, pitch, velocity)
+        last_tick = start_tick
+
+        delta_off = max(1, end_tick - start_tick)
+        track_events += write_var_len(delta_off)
+        track_events += pack('BBB', 0x80, pitch, 0)
+        last_tick = end_tick
+
+    # End of track
+    track_events += write_var_len(0)
+    track_events += b'\xFF\x2F\x00'
+
+    buf = bytearray()
+    buf += b'MThd'
+    buf += pack('>I', 6)
+    buf += pack('>HHH', 0, 1, ticks_per_quarter)
+    buf += b'MTrk'
+    buf += pack('>I', len(track_events))
+    buf += track_events
+
+    return bytes(buf)
+
+
+class MidiExportResponse(BaseModel):
+    ok: bool = True
+    filename: str = ""
+    url: str = ""
+
+
+@router.post("/midi-export", response_model=MidiExportResponse)
+async def midi_export(body: MidiExportRequest):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    midi_bytes = _write_midi(body.notes, body.tempo)
+
+    filename = f"export_{uuid.uuid4().hex[:12]}.mid"
+    path = output_dir / filename
+    path.write_bytes(midi_bytes)
+
+    return MidiExportResponse(
+        ok=True,
+        filename=filename,
+        url=f"/api/audio/midi/{filename}",
     )
