@@ -211,6 +211,20 @@ export const api = {
       fd.append("method", method);
       return upload<TranscribeResult>("/api/tools/transcribe", fd);
     },
+    compress: (file: File, sampleRate: number, bitDepth: number, mono: boolean) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("sample_rate", String(sampleRate));
+      fd.append("bit_depth", String(bitDepth));
+      fd.append("to_mono", String(mono));
+      return upload<CompressResult>("/api/tools/compress", fd);
+    },
+    youtube: (url: string) =>
+      request<YouTubeResult>("/api/tools/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      }),
   },
 };
 
@@ -230,4 +244,26 @@ interface TranscribeResult {
   duration_secs: number;
   method: string;
   note_count: number;
+}
+
+interface CompressResult {
+  ok: boolean;
+  original_size: number;
+  compressed_size: number;
+  reduction_pct: number;
+  filename: string;
+  url: string;
+  sample_rate: number;
+  duration_secs: number;
+  channels: number;
+}
+
+interface YouTubeResult {
+  ok: boolean;
+  title: string;
+  artist: string;
+  filename: string;
+  url: string;
+  duration_secs: number;
+  thumbnail: string;
 }

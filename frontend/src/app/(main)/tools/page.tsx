@@ -111,19 +111,7 @@ export default function ToolsPage() {
 
     try {
       const cleanUrl = url.trim().split("&list=")[0].split("?si=")[0];
-      const res = await fetch("/api/tools/youtube", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ url: cleanUrl }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data || !data.ok) {
-        setError((data && data.detail) || `Server error (${res.status})`);
-        return;
-      }
+      const data = await api.tools.youtube(cleanUrl);
 
       if (data.title) {
         setResult(data);
@@ -144,24 +132,7 @@ export default function ToolsPage() {
     setCompressResult(null);
 
     try {
-      const fd = new FormData();
-      fd.append("file", compressFile);
-      fd.append("sample_rate", String(compressRate));
-      fd.append("bit_depth", String(compressDepth));
-      fd.append("to_mono", String(compressMono));
-
-      const res = await fetch("/api/tools/compress", {
-        method: "POST",
-        credentials: "include",
-        body: fd,
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || !data.ok) {
-        setCompressError((data && data.detail) || `Server error (${res.status})`);
-        return;
-      }
-
+      const data = await api.tools.compress(compressFile, compressRate, compressDepth, compressMono);
       setCompressResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
