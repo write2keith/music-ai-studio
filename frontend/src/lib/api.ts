@@ -239,6 +239,33 @@ export const api = {
     },
     vocalPrepStatus: (jobId: string) =>
       request<VocalPrepResult>(`/api/tools/vocal-prep/${jobId}`),
+    vocalRemove: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<VocalRemoveResult>("/api/tools/vocal-remove", fd);
+    },
+    vocalRemoveStatus: (jobId: string) =>
+      request<{ status: string; instrumental_ready: boolean; vocals_ready: boolean }>(`/api/tools/vocal-remove/${jobId}/status`),
+    chordDetect: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<ChordDetectResult>("/api/tools/chord-detect", fd);
+    },
+    pitchTempo: (file: File, pitchSemitones: number, tempoFactor: number) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("pitch_semitones", String(pitchSemitones));
+      fd.append("tempo_factor", String(tempoFactor));
+      return upload<PitchTempoResult>("/api/tools/pitch-tempo", fd);
+    },
+    lyricTranscribe: (file: File, language: string = "auto") => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("language", language);
+      return upload<LyricTranscribeResult>("/api/tools/lyric-transcribe", fd);
+    },
+    lyricTranscribeStatus: (jobId: string) =>
+      request<LyricTranscribeResult>(`/api/tools/lyric-transcribe/${jobId}`),
   },
 };
 
@@ -307,4 +334,52 @@ interface VocalPrepResult {
   pitch_data: PitchPoint[];
   vocals_url: string;
   duration_secs: number;
+}
+
+export interface VocalRemoveResult {
+  ok: boolean;
+  instrumental_url: string;
+  vocals_url: string;
+  filename: string;
+  duration_secs: number;
+}
+
+export interface ChordEvent {
+  start_time: number;
+  end_time: number;
+  chord: string;
+  notes: string;
+  confidence: number;
+}
+
+export interface ChordDetectResult {
+  ok: boolean;
+  chords: ChordEvent[];
+  duration_secs: number;
+  chord_count: number;
+}
+
+export interface PitchTempoResult {
+  ok: boolean;
+  filename: string;
+  url: string;
+  duration_secs: number;
+  original_bpm: number;
+  adjusted_bpm: number;
+}
+
+export interface LyricLine {
+  start: number;
+  end: number;
+  text: string;
+  confidence: number;
+}
+
+export interface LyricTranscribeResult {
+  ok: boolean;
+  job_id: string;
+  status: string;
+  lyrics: LyricLine[];
+  full_text: string;
+  language: string;
 }

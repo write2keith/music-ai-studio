@@ -771,3 +771,455 @@ async def vocal_prep_status(job_id: str):
         resp.duration_secs = round(duration, 1)
 
     return resp
+
+
+# ── Vocal Remover ──────────────────────────────────────────────
+
+class VocalRemoveResponse(BaseModel):
+    ok: bool = True
+    instrumental_url: str = ""
+    vocals_url: str = ""
+    filename: str = ""
+    duration_secs: float = 0.0
+
+
+@router.post("/vocal-remove", response_model=VocalRemoveResponse)
+async def vocal_remove(file: UploadFile = File(...)):
+    from ..queue.worker import queue
+
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    save_path = output_dir / f"vocal_rm_{uuid.uuid4().hex[:12]}{ext}"
+    save_path.write_bytes(content)
+
+    job_id = queue.enqueue(
+        "vocal_remove",
+        {"audio_path": str(save_path), "model": "htdemucs"},
+    )
+    logger.info(f"Vocal remove job {job_id} enqueued")
+
+    return VocalRemoveResponse(
+        ok=True,
+        instrumental_url=f"/api/tools/vocal-remove/{job_id}/instrumental",
+        vocals_url=f"/api/tools/vocal-remove/{job_id}/vocals",
+        filename=f"instrumental_{job_id}.wav",
+    )
+
+
+@router.get("/vocal-remove/{job_id}/status")
+async def vocal_remove_status(job_id: str):
+    from ..queue.worker import queue, JobStatus
+
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+
+    res = {
+        "status": job["status"],
+        "instrumental_ready": False,
+        "vocals_ready": False,
+    }
+    if job["status"] == JobStatus.COMPLETED and job.get("result"):
+        r = job["result"]
+        res["instrumental_ready"] = bool(r.get("instrumental_path"))
+        res["vocals_ready"] = bool(r.get("vocals_path"))
+    return res
+
+
+@router.get("/vocal-remove/{job_id}/instrumental")
+async def serve_instrumental(job_id: str):
+    from fastapi.responses import FileResponse
+    from ..queue.worker import queue, JobStatus
+
+    job = queue.get(job_id)
+    if not job or job["status"] != JobStatus.COMPLETED:
+        raise HTTPException(status_code=404, detail="Not ready")
+    path = job.get("result", {}).get("instrumental_path", "")
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="audio/wav")
+
+
+@router.get("/vocal-remove/{job_id}/vocals")
+async def serve_vocals(job_id: str):
+    from fastapi.responses import FileResponse
+    from ..queue.worker import queue, JobStatus
+
+    job = queue.get(job_id)
+    if not job or job["status"] != JobStatus.COMPLETED:
+        raise HTTPException(status_code=404, detail="Not ready")
+    path = job.get("result", {}).get("vocals_path", "")
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="audio/wav")
+
+
+# ── Chord Detection ───────────────────────────────────────────
+
+CHORD_TEMPLATES: dict[str, list[int]] = {
+    "":      [0, 4, 7],          # major
+    "m":     [0, 3, 7],          # minor
+    "dim":   [0, 3, 6],          # diminished
+    "aug":   [0, 4, 8],          # augmented
+    "sus2":  [0, 2, 7],          # suspended 2nd
+    "sus4":  [0, 5, 7],          # suspended 4th
+    "7":     [0, 4, 7, 10],      # dominant 7th
+    "maj7":  [0, 4, 7, 11],      # major 7th
+    "m7":    [0, 3, 7, 10],      # minor 7th
+    "dim7":  [0, 3, 6, 9],       # diminished 7th
+    "m7b5":  [0, 3, 6, 10],      # half-diminished 7th
+    "6":     [0, 4, 7, 9],       # major 6th
+    "m6":    [0, 3, 7, 9],       # minor 6th
+    "9":     [0, 4, 7, 10, 2],   # dominant 9th
+    "add9":  [0, 4, 7, 2],       # add9
+}
+
+
+class ChordEvent(BaseModel):
+    start_time: float
+    end_time: float
+    chord: str
+    notes: str
+    confidence: float
+
+
+class ChordDetectResponse(BaseModel):
+    ok: bool = True
+    chords: list[ChordEvent] = []
+    duration_secs: float = 0.0
+    chord_count: int = 0
+
+
+def _intervals_to_chord(notes: list[int]) -> tuple[str, str, float]:
+    if not notes:
+        return "N", "", 0.0
+    if len(notes) == 1:
+        n = notes[0]
+        return f"{NOTE_NAMES[n % 12]}{n // 12 - 1}", f"{NOTE_NAMES[n % 12]}{n // 12 - 1}", 1.0
+    if len(notes) == 2:
+        interval = (notes[1] - notes[0]) % 12
+        labels = {1: "m2", 2: "M2", 3: "m3", 4: "M3", 5: "P4", 6: "TT", 7: "P5", 8: "m6", 9: "M6", 10: "m7", 11: "M7"}
+        n = notes[0]
+        root_name = f"{NOTE_NAMES[n % 12]}{n // 12 - 1}"
+        return f"{root_name} ({labels.get(interval, '?')})", f"{NOTE_NAMES[notes[0] % 12]}{notes[0] // 12 - 1}-{NOTE_NAMES[notes[1] % 12]}{notes[1] // 12 - 1}", 0.9
+
+    best_name = "?"
+    best_notes = ""
+    best_score = 0.0
+
+    for root_candidate in set(notes):
+        root_bucket = root_candidate % 12
+        norm_intervals = sorted(set((n - root_candidate) % 12 for n in notes))
+
+        for suffix, template in CHORD_TEMPLATES.items():
+            template_set = set(template)
+            overlap = len(template_set & set(norm_intervals))
+            extra = len(set(norm_intervals) - template_set)
+            missing = len(template_set - set(norm_intervals))
+            score = overlap / max(len(template_set), 1) * (1.0 - 0.2 * extra - 0.3 * missing)
+            if score > best_score:
+                best_score = score
+                root_name = f"{NOTE_NAMES[root_bucket]}{root_candidate // 12 - 1}"
+                best_name = f"{root_name}{suffix}" if suffix else root_name
+                best_notes = "-".join(f"{NOTE_NAMES[n % 12]}{n // 12 - 1}" for n in sorted(notes))
+
+    confidence = min(1.0, max(0.0, best_score))
+    return best_name, best_notes, confidence
+
+
+def _detect_chords_polyphonic(audio_path: str) -> dict:
+    import numpy as np
+    import scipy.io.wavfile as wav
+
+    sr, data = wav.read(str(audio_path))
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    data = data.astype(np.float32)
+    max_val = np.max(np.abs(data))
+    if max_val > 0:
+        data = data / max_val
+
+    duration = len(data) / sr
+    n_fft = 4096
+    hop_samples = n_fft // 4
+    num_frames = (len(data) - n_fft) // hop_samples + 1
+    if num_frames < 1:
+        return {"chords": [], "duration_secs": round(duration, 1)}
+
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    lo_idx = int(40 * n_fft / sr)
+    hi_idx = int(4000 * n_fft / sr)
+    valid_freqs = freqs[lo_idx:hi_idx + 1]
+    valid_len = len(valid_freqs)
+
+    frame_chords = []
+    for f in range(num_frames):
+        start = f * hop_samples
+        frame = data[start : start + n_fft]
+        rms = float(np.sqrt(np.mean(frame ** 2)))
+        if rms < 0.008:
+            frame_chords.append(None)
+            continue
+
+        windowed = frame * np.hanning(n_fft)
+        spec = np.abs(np.fft.rfft(windowed, n=n_fft))
+        spec_valid = spec[lo_idx:hi_idx + 1].copy()
+        peak_mag = float(np.max(spec_valid))
+        if peak_mag < 1e-6:
+            frame_chords.append(None)
+            continue
+
+        work_spec = spec_valid.copy()
+        noise_floor = float(np.median(spec[lo_idx:hi_idx + 1])) * 3
+
+        detected = []
+        for _ in range(6):
+            peak_rel = int(np.argmax(work_spec))
+            mag = float(work_spec[peak_rel])
+            if mag < noise_floor or mag < peak_mag * 0.08:
+                break
+
+            freq = valid_freqs[peak_rel]
+            midi, _ = _hz_to_note(freq)
+            detected.append(midi)
+
+            for h in [1, 2, 3, 4, 5, 6]:
+                hz_exact = freq * h
+                center = int(hz_exact * n_fft / sr) - lo_idx
+                bw = max(2, int(freq * h * 0.03 * n_fft / sr))
+                for k in range(max(0, center - bw), min(valid_len, center + bw + 1)):
+                    work_spec[k] *= 0.05
+
+        if detected:
+            frame_chords.append(sorted(set(detected)))
+        else:
+            frame_chords.append(None)
+
+    chords = []
+    i = 0
+    while i < num_frames:
+        current = frame_chords[i]
+        if current is None:
+            i += 1
+            continue
+
+        j = i + 1
+        merged_pitches = set(current)
+        while j < num_frames:
+            nxt = frame_chords[j]
+            if nxt is None:
+                break
+            overlap = len(set(merged_pitches) & set(nxt))
+            total = len(set(merged_pitches) | set(nxt)) or 1
+            if overlap / total < 0.5:
+                break
+            merged_patches = set(merged_pitches) | set(nxt)
+            if len(merged_patches) <= 8:
+                merged_pitches = merged_patches
+            j += 1
+
+        dur = (j - i) * hop_samples / sr
+        if dur >= 0.08:
+            pitches_list = sorted(merged_pitches)
+            chord_name, note_labels, conf = _intervals_to_chord(pitches_list)
+            chords.append({
+                "start_time": round(i * hop_samples / sr + n_fft / (2 * sr), 3),
+                "end_time": round((j - 1) * hop_samples / sr + n_fft / (2 * sr), 3),
+                "chord": chord_name,
+                "notes": note_labels,
+                "confidence": round(conf, 2),
+            })
+        i = j
+
+    return {
+        "chords": chords,
+        "duration_secs": round(duration, 1),
+    }
+
+
+@router.post("/chord-detect", response_model=ChordDetectResponse)
+async def chord_detect(file: UploadFile = File(...)):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    tmp_path = output_dir / f"chord_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.write_bytes(content)
+
+    wav_path = tmp_path
+    try:
+        import scipy.io.wavfile
+        scipy.io.wavfile.read(str(wav_path))
+    except Exception:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp_path))
+            wav_path = output_dir / f"chord_{uuid.uuid4().hex[:12]}.wav"
+            audio.export(str(wav_path), format="wav")
+            tmp_path.unlink(missing_ok=True)
+        except Exception as e:
+            for p in [tmp_path, wav_path]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+
+    try:
+        result = _detect_chords_polyphonic(str(wav_path))
+    except Exception as e:
+        wav_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Chord detection failed: {str(e)[:200]}")
+
+    wav_path.unlink(missing_ok=True)
+
+    return ChordDetectResponse(
+        ok=True,
+        chords=[ChordEvent(**c) for c in result["chords"]],
+        duration_secs=result["duration_secs"],
+        chord_count=len(result["chords"]),
+    )
+
+
+# ── Pitch & Tempo Adjustment ──────────────────────────────────
+
+class PitchTempoResponse(BaseModel):
+    ok: bool = True
+    filename: str = ""
+    url: str = ""
+    duration_secs: float = 0.0
+    original_bpm: float = 0.0
+    adjusted_bpm: float = 0.0
+
+
+@router.post("/pitch-tempo", response_model=PitchTempoResponse)
+async def adjust_pitch_tempo(
+    file: UploadFile = File(...),
+    pitch_semitones: float = Form(default=0.0),
+    tempo_factor: float = Form(default=1.0),
+):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pitch_semitones = max(-12.0, min(12.0, pitch_semitones))
+    tempo_factor = max(0.5, min(2.0, tempo_factor))
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    tmp_path = output_dir / f"pitch_in_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.write_bytes(content)
+
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(str(tmp_path))
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+
+    original_bpm = len(audio) and (audio.frame_rate / len(audio.get_array_of_samples())) or 0.0
+
+    if tempo_factor != 1.0:
+        try:
+            audio = audio.speedup(playback_speed=tempo_factor)
+        except Exception:
+            try:
+                new_frame_rate = int(audio.frame_rate * tempo_factor)
+                audio = audio._spawn(audio.raw_data, overrides={"frame_rate": new_frame_rate})
+                audio = audio.set_frame_rate(audio.frame_rate)
+            except Exception:
+                pass
+
+    if pitch_semitones != 0:
+        new_sample_rate = int(audio.frame_rate * (2.0 ** (-pitch_semitones / 12.0)))
+        try:
+            pitched = audio._spawn(audio.raw_data, overrides={"frame_rate": new_sample_rate})
+            pitched = pitched.set_frame_rate(audio.frame_rate)
+            audio = pitched
+        except Exception:
+            pass
+
+    out_filename = f"adjusted_{uuid.uuid4().hex[:12]}.wav"
+    out_path = output_dir / out_filename
+    audio.export(str(out_path), format="wav")
+
+    tmp_path.unlink(missing_ok=True)
+
+    adjusted_bpm = original_bpm * tempo_factor if original_bpm > 0 else 0.0
+
+    return PitchTempoResponse(
+        ok=True,
+        filename=out_filename,
+        url=f"/api/audio/{out_filename}",
+        duration_secs=round(len(audio) / 1000.0, 1),
+        original_bpm=round(original_bpm if original_bpm > 0 else 120.0, 1),
+        adjusted_bpm=round(adjusted_bpm, 1),
+    )
+
+
+# ── Lyric Transcription ───────────────────────────────────────
+
+class LyricLine(BaseModel):
+    start: float
+    end: float
+    text: str
+    confidence: float
+
+
+class LyricTranscribeResponse(BaseModel):
+    ok: bool = True
+    job_id: str = ""
+    status: str = "queued"
+    lyrics: list[LyricLine] = []
+    full_text: str = ""
+    language: str = ""
+
+
+@router.post("/lyric-transcribe", response_model=LyricTranscribeResponse)
+async def lyric_transcribe(
+    file: UploadFile = File(...),
+    language: str = Form(default="auto"),
+):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    save_path = output_dir / f"lyric_{uuid.uuid4().hex[:12]}{ext}"
+    save_path.write_bytes(content)
+
+    from ..queue.worker import queue
+    job_id = queue.enqueue(
+        "lyric_transcribe",
+        {"audio_path": str(save_path), "language": language},
+    )
+    logger.info(f"Lyric transcribe job {job_id} enqueued")
+
+    return LyricTranscribeResponse(ok=True, job_id=job_id, status="queued")
+
+
+@router.get("/lyric-transcribe/{job_id}", response_model=LyricTranscribeResponse)
+async def lyric_transcribe_status(job_id: str):
+    from ..queue.worker import queue, JobStatus
+
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+
+    resp = LyricTranscribeResponse(
+        ok=True,
+        job_id=job_id,
+        status=job["status"],
+    )
+
+    if job["status"] == JobStatus.COMPLETED and job.get("result"):
+        r = job["result"]
+        resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
+        resp.full_text = r.get("full_text", "")
+        resp.language = r.get("language", "")
+
+    return resp

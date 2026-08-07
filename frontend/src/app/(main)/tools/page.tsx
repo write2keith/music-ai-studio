@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
-import type { CompressResult, TranscribeResult, TranscribeNote } from "@/lib/api";
+import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult } from "@/lib/api";
 import { PitchGraph } from "@/components/PitchGraph";
 
 interface DownloadResult {
@@ -96,6 +96,31 @@ export default function ToolsPage() {
   const animFrameRef = useRef<number>(0);
   const recordStartRef = useRef<number>(0);
 
+  const [removerFile, setRemoverFile] = useState<File | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removerJobId, setRemoverJobId] = useState("");
+  const [removerStatus, setRemoverStatus] = useState("");
+  const [removerPollId, setRemoverPollId] = useState<NodeJS.Timeout | null>(null);
+
+  const [chordFile, setChordFile] = useState<File | null>(null);
+  const [chordDetecting, setChordDetecting] = useState(false);
+  const [chordError, setChordError] = useState("");
+  const [chordResult, setChordResult] = useState<ChordDetectResult | null>(null);
+
+  const [pitchTempoFile, setPitchTempoFile] = useState<File | null>(null);
+  const [pitchSemitones, setPitchSemitones] = useState(0);
+  const [tempoFactor, setTempoFactor] = useState(1.0);
+  const [pitchTempoAdjusting, setPitchTempoAdjusting] = useState(false);
+  const [pitchTempoError, setPitchTempoError] = useState("");
+  const [pitchTempoResult, setPitchTempoResult] = useState<PitchTempoResult | null>(null);
+
+  const [lyricFile, setLyricFile] = useState<File | null>(null);
+  const [lyricJobId, setLyricJobId] = useState("");
+  const [lyricPolling, setLyricPolling] = useState(false);
+  const [lyricTranscribing, setLyricTranscribing] = useState(false);
+  const [lyricError, setLyricError] = useState("");
+  const [lyricResult, setLyricResult] = useState<LyricTranscribeResult | null>(null);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
@@ -158,6 +183,108 @@ export default function ToolsPage() {
       setTranscribeError(msg || "Network error");
     }
     setTranscribing(false);
+  }
+
+  async function handleVocalRemove() {
+    if (!removerFile) return;
+    setRemoving(true);
+    setRemoverStatus("");
+    try {
+      const data = await api.tools.vocalRemove(removerFile);
+      setRemoverJobId(data.filename.replace("instrumental_", "").replace(".wav", ""));
+      setRemoverStatus("processing");
+      pollRemover(data.filename.replace("instrumental_", "").replace(".wav", ""));
+    } catch (err) {
+      setRemoverStatus("failed");
+      setRemoving(false);
+    }
+  }
+
+  async function pollRemover(jobId: string) {
+    const t = setInterval(async () => {
+      try {
+        const s = await api.tools.vocalRemoveStatus(jobId);
+        if (s.instrumental_ready) {
+          setRemoverStatus("ready");
+          setRemoving(false);
+          clearInterval(t);
+        }
+      } catch {
+        setRemoverStatus("failed");
+        setRemoving(false);
+        clearInterval(t);
+      }
+    }, 2000);
+    setRemoverPollId(t);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (removerPollId) clearInterval(removerPollId);
+    };
+  }, [removerPollId]);
+
+  async function handleChordDetect() {
+    if (!chordFile) return;
+    setChordDetecting(true);
+    setChordError("");
+    setChordResult(null);
+    try {
+      const data = await api.tools.chordDetect(chordFile);
+      setChordResult(data);
+    } catch (err) {
+      setChordError(err instanceof Error ? err.message : String(err));
+    }
+    setChordDetecting(false);
+  }
+
+  async function handlePitchTempo() {
+    if (!pitchTempoFile) return;
+    setPitchTempoAdjusting(true);
+    setPitchTempoError("");
+    setPitchTempoResult(null);
+    try {
+      const data = await api.tools.pitchTempo(pitchTempoFile, pitchSemitones, tempoFactor);
+      setPitchTempoResult(data);
+    } catch (err) {
+      setPitchTempoError(err instanceof Error ? err.message : String(err));
+    }
+    setPitchTempoAdjusting(false);
+  }
+
+  async function handleLyricTranscribe() {
+    if (!lyricFile) return;
+    setLyricTranscribing(true);
+    setLyricError("");
+    setLyricResult(null);
+    try {
+      const data = await api.tools.lyricTranscribe(lyricFile);
+      setLyricJobId(data.job_id);
+      setLyricPolling(true);
+      pollLyrics(data.job_id);
+    } catch (err) {
+      setLyricError(err instanceof Error ? err.message : String(err));
+      setLyricTranscribing(false);
+    }
+  }
+
+  async function pollLyrics(jobId: string) {
+    const t = setInterval(async () => {
+      try {
+        const data = await api.tools.lyricTranscribeStatus(jobId);
+        if (data.status === "completed") {
+          setLyricResult(data);
+          setLyricPolling(false);
+          setLyricTranscribing(false);
+          clearInterval(t);
+        }
+      } catch {
+        setLyricError("Transcription failed");
+        setLyricPolling(false);
+        setLyricTranscribing(false);
+        clearInterval(t);
+      }
+    }, 2000);
   }
 
   async function startRecording() {
@@ -825,6 +952,509 @@ export default function ToolsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Vocal Remover */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Mic className="w-5 h-5 text-amber-400" />
+          Vocal Remover
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Remove vocals from any song — get clean instrumental backing tracks and isolated vocals.
+          Background harmonies are preserved in the instrumental.
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        <div
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files[0];
+            if (f) { setRemoverFile(f); setRemoverStatus(""); }
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => document.getElementById("remover-file-input")?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
+            removerFile
+              ? "border-daw-green/50 bg-daw-green/5"
+              : "border-daw-border hover:border-amber-400/40 hover:bg-daw-surface-2"
+          )}
+        >
+          <input
+            id="remover-file-input"
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) { setRemoverFile(f); setRemoverStatus(""); }
+            }}
+          />
+          {removerFile ? (
+            <div className="flex items-center justify-center gap-2 text-daw-green">
+              <FileAudio className="w-5 h-5" />
+              <span className="text-sm font-medium">{removerFile.name}</span>
+              {removerStatus === "processing" && (
+                <span className="flex items-center gap-1 text-yellow-400 text-xs">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Separating...
+                </span>
+              )}
+              {removerStatus === "ready" && (
+                <span className="text-daw-green text-xs">Ready</span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Music className="w-8 h-8 mx-auto text-daw-text-dim" />
+              <p className="text-sm text-daw-text-muted">Drop a song here to remove vocals</p>
+            </div>
+          )}
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleVocalRemove}
+          disabled={removing || !removerFile}
+        >
+          {removing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Removing Vocals...
+            </>
+          ) : (
+            <>
+              <Music className="w-4 h-4" />
+              Remove Vocals
+            </>
+          )}
+        </Button>
+
+        <AnimatePresence>
+          {removerStatus === "ready" && removerJobId && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-2"
+            >
+              <div className="flex gap-2">
+                <a
+                  href={`/api/tools/vocal-remove/${removerJobId}/instrumental`}
+                  download
+                  className="flex-1 daw-button daw-button-primary text-xs text-center py-2"
+                >
+                  <Download className="w-3.5 h-3.5 inline mr-1" />
+                  Download Instrumental
+                </a>
+                <a
+                  href={`/api/tools/vocal-remove/${removerJobId}/vocals`}
+                  download
+                  className="flex-1 daw-button daw-button-secondary text-xs text-center py-2"
+                >
+                  <Download className="w-3.5 h-3.5 inline mr-1" />
+                  Download Vocals
+                </a>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Chord Detection */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Music className="w-5 h-5 text-cyan-400" />
+          Chord Detection
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Detect chords as the song plays. Ideal for learning songs, memorizing progressions, and teaching.
+          Drop a separated instrument stem or a full mix.
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        <div
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files[0];
+            if (f) { setChordFile(f); setChordResult(null); setChordError(""); }
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => document.getElementById("chord-file-input")?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
+            chordFile
+              ? "border-daw-green/50 bg-daw-green/5"
+              : "border-daw-border hover:border-cyan-400/40 hover:bg-daw-surface-2"
+          )}
+        >
+          <input
+            id="chord-file-input"
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) { setChordFile(f); setChordResult(null); setChordError(""); }
+            }}
+          />
+          {chordFile ? (
+            <div className="flex items-center justify-center gap-2 text-daw-green">
+              <FileAudio className="w-5 h-5" />
+              <span className="text-sm font-medium">{chordFile.name}</span>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Music className="w-8 h-8 mx-auto text-daw-text-dim" />
+              <p className="text-sm text-daw-text-muted">Drop a song or instrument stem here</p>
+            </div>
+          )}
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleChordDetect}
+          disabled={chordDetecting || !chordFile}
+        >
+          {chordDetecting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Detecting chords...
+            </>
+          ) : (
+            <>
+              <Music className="w-4 h-4" />
+              Detect Chords
+            </>
+          )}
+        </Button>
+
+        {chordError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {chordError}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {chordResult && chordResult.chords.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-3 border border-cyan-400/20 rounded-xl p-4"
+            >
+              <div className="flex items-center gap-2">
+                <Badge variant="accent" className="text-[10px]">
+                  {chordResult.chord_count} chords
+                </Badge>
+                <span className="text-xs text-daw-text-dim">
+                  {formatDuration(chordResult.duration_secs)}
+                </span>
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                {chordResult.chords.map((c: ChordEvent, i: number) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-daw-surface-3/50 text-xs">
+                    <span className="w-14 text-daw-text-dim tabular-nums shrink-0">
+                      {c.start_time.toFixed(1)}s
+                    </span>
+                    <span className="flex-1 font-mono font-bold text-cyan-300">{c.chord}</span>
+                    <span className="text-[10px] text-daw-text-dim">{c.notes}</span>
+                    <div className="w-12 shrink-0">
+                      <div className="h-1 rounded-full bg-daw-surface-2 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-cyan-400 transition-all"
+                          style={{ width: `${c.confidence * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-daw-text-dim w-10 text-right tabular-nums">
+                      {(c.end_time - c.start_time).toFixed(1)}s
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Pitch & Tempo Adjustment */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Mic className="w-5 h-5 text-blue-400" />
+          Pitch &amp; Tempo Adjustment
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Change pitch (up to +/-12 semitones) and tempo (50%-200%) to suit different practice needs.
+          Great for learning songs in a different key or slowing down fast passages.
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        <div
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files[0];
+            if (f) { setPitchTempoFile(f); setPitchTempoResult(null); setPitchTempoError(""); }
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => document.getElementById("pitch-tempo-file-input")?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
+            pitchTempoFile
+              ? "border-daw-green/50 bg-daw-green/5"
+              : "border-daw-border hover:border-blue-400/40 hover:bg-daw-surface-2"
+          )}
+        >
+          <input
+            id="pitch-tempo-file-input"
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) { setPitchTempoFile(f); setPitchTempoResult(null); setPitchTempoError(""); }
+            }}
+          />
+          {pitchTempoFile ? (
+            <div className="flex items-center justify-center gap-2 text-daw-green">
+              <FileAudio className="w-5 h-5" />
+              <span className="text-sm font-medium">{pitchTempoFile.name}</span>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Music className="w-8 h-8 mx-auto text-daw-text-dim" />
+              <p className="text-sm text-daw-text-muted">Drop an audio file here</p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-daw-text-dim block mb-1">
+              Pitch Shift: {pitchSemitones > 0 ? "+" : ""}{pitchSemitones} semitones
+            </label>
+            <input
+              type="range"
+              min="-12"
+              max="12"
+              step="1"
+              value={pitchSemitones}
+              onChange={(e) => setPitchSemitones(Number(e.target.value))}
+              className="w-full accent-blue-400"
+            />
+            <div className="flex justify-between text-[10px] text-daw-text-dim mt-0.5">
+              <span>-12</span>
+              <span>0</span>
+              <span>+12</span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-daw-text-dim block mb-1">
+              Tempo: {Math.round(tempoFactor * 100)}%
+            </label>
+            <input
+              type="range"
+              min="50"
+              max="200"
+              step="5"
+              value={Math.round(tempoFactor * 100)}
+              onChange={(e) => setTempoFactor(Number(e.target.value) / 100)}
+              className="w-full accent-blue-400"
+            />
+            <div className="flex justify-between text-[10px] text-daw-text-dim mt-0.5">
+              <span>50%</span>
+              <span>100%</span>
+              <span>200%</span>
+            </div>
+          </div>
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handlePitchTempo}
+          disabled={pitchTempoAdjusting || !pitchTempoFile}
+        >
+          {pitchTempoAdjusting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>
+              <Music className="w-4 h-4" />
+              Apply Changes
+            </>
+          )}
+        </Button>
+
+        {pitchTempoError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {pitchTempoError}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {pitchTempoResult && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-3 border border-blue-400/20 rounded-xl p-4"
+            >
+              <div className="flex items-center gap-2">
+                <Badge variant="accent">
+                  <Check className="w-3 h-3" /> Ready
+                </Badge>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-daw-text-dim">
+                <span>Duration: {formatDuration(pitchTempoResult.duration_secs)}</span>
+                <span>Pitch: {pitchSemitones !== 0 ? `${pitchSemitones > 0 ? "+" : ""}${pitchSemitones}st` : "unchanged"}</span>
+                <span>Tempo: {Math.round(tempoFactor * 100)}%</span>
+              </div>
+              <a
+                href={pitchTempoResult.url}
+                download={pitchTempoResult.filename}
+                className="daw-button daw-button-primary text-xs inline-flex"
+              >
+                <Download className="w-3.5 h-3.5" /> Download Adjusted Audio
+              </a>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Lyric Transcription */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Mic className="w-5 h-5 text-emerald-400" />
+          Lyric Transcription
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Auto-transcribe lyrics from any track using Whisper speech-to-text.
+          Upload a separated vocal stem or a full song (vocals auto-separated).
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        <div
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files[0];
+            if (f) { setLyricFile(f); setLyricResult(null); setLyricError(""); }
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => document.getElementById("lyric-file-input")?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
+            lyricFile
+              ? "border-daw-green/50 bg-daw-green/5"
+              : "border-daw-border hover:border-emerald-400/40 hover:bg-daw-surface-2"
+          )}
+        >
+          <input
+            id="lyric-file-input"
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) { setLyricFile(f); setLyricResult(null); setLyricError(""); }
+            }}
+          />
+          {lyricFile ? (
+            <div className="flex items-center justify-center gap-2 text-daw-green">
+              <FileAudio className="w-5 h-5" />
+              <span className="text-sm font-medium">{lyricFile.name}</span>
+              {lyricPolling && (
+                <span className="flex items-center gap-1 text-yellow-400 text-xs">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Transcribing...
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Music className="w-8 h-8 mx-auto text-daw-text-dim" />
+              <p className="text-sm text-daw-text-muted">Drop a vocal stem or full song here</p>
+            </div>
+          )}
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleLyricTranscribe}
+          disabled={lyricTranscribing || !lyricFile}
+        >
+          {lyricTranscribing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Transcribing lyrics...
+            </>
+          ) : (
+            <>
+              <Mic className="w-4 h-4" />
+              Transcribe Lyrics
+            </>
+          )}
+        </Button>
+
+        {lyricError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {lyricError}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {lyricResult && lyricResult.lyrics.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-3 border border-emerald-400/20 rounded-xl p-4"
+            >
+              <div className="flex items-center gap-2">
+                <Badge variant="green">
+                  {lyricResult.lyrics.length} lines
+                </Badge>
+                {lyricResult.language && (
+                  <span className="text-xs text-daw-text-dim">Language: {lyricResult.language}</span>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+                {lyricResult.lyrics.map((line, i: number) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 px-3 py-1.5 rounded-md bg-daw-surface-3/50 hover:bg-daw-surface-3/80 transition-colors text-xs"
+                  >
+                    <span className="w-14 text-daw-text-dim tabular-nums shrink-0 pt-0.5">
+                      {line.start.toFixed(1)}s
+                    </span>
+                    <span className="flex-1 text-daw-text">{line.text}</span>
+                    <span className="text-[10px] text-daw-text-dim shrink-0">
+                      {Math.round(line.confidence * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {lyricResult.full_text && (
+                <div className="p-3 rounded-lg bg-daw-surface-2/50 text-sm text-daw-text leading-relaxed italic border-l-2 border-emerald-400/30">
+                  {lyricResult.full_text}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Vocal Coach */}
       <div className="pt-6 border-t border-daw-border">
