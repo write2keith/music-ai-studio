@@ -1,6 +1,6 @@
 # Music AI Studio
 
-A production-grade DAW-inspired web application combining AI music generation, stem separation, and audio editing. Powered by Meta MusicGen, Demucs, and Pedalboard.
+A production-grade DAW-inspired web application combining AI music generation, stem separation, audio editing, compression, and instrument note detection. Powered by Meta MusicGen, Demucs, and Pedalboard.
 
 ## Architecture
 
@@ -110,13 +110,16 @@ SoundCloud-style explore view with Trending, New, Top, and For You tabs. Each po
 Personal track management with All, Completed, Drafts, and Published tab filters. Tracks are displayed in a table-row layout with play buttons, genre/mood tags, export format badges, published status, and inline actions (publish, edit, download, stems, more).
 
 ### Generate
-Text-to-music via Meta MusicGen. Submit a prompt, the job is queued asynchronously, and the result appears when complete. Built-in polling with status display.
+Text-to-music via Meta MusicGen. Submit a prompt, the job is queued asynchronously, and the frontend polls for completion with live status text.
 
 ### Separate
-Upload any audio file and split into isolated stems (vocals, drums, bass, other). Supports htdemucs, htdemucs_ft, and htdemucs_6s models.
+Upload any audio file and split into isolated stems (vocals, drums, bass, guitar, piano, other via htdemucs_6s). Supports htdemucs, htdemucs_ft, and htdemucs_6s models. Async job queue with live polling. Automatic cloud fallback via HuggingFace Inference API when local demucs/ffmpeg unavailable.
+
+### Tools
+Multi-tool utility page with YouTube audio extraction (yt-dlp), audio compressor (sample rate/bit depth/mono reduction), and instrument note detection (FFT-based pitch transcription with MIDI note names and timing).
 
 ### Edit
-Audio editor with waveform display, play/pause/stop transport, region selection, trim/crop, fade in/out, normalize, speed change, merge stems, and effects chain (reverb, delay, 3-band EQ, compressor).
+Audio editor with real waveform canvas rendering, drag-to-select regions, click-to-seek, and playhead cursor animation. Supports trim/crop, fade in/out with configurable duration, normalize with configurable target dB, speed change, merge stems, and effects chain (reverb, delay, 3-band EQ, compressor). Edit chaining: each result becomes the working file for progressive editing.
 
 ## Quick Start
 

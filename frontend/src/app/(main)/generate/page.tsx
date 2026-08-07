@@ -7,7 +7,7 @@ import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatSize } from "@/lib/utils";
-import type { StemResult } from "@/lib/types";
+import type { StemResult, GenerationJob } from "@/lib/types";
 
 const MODELS = [
   { value: "htdemucs", label: "htdemucs" },
@@ -28,6 +28,7 @@ export default function SeparatePage() {
   const [file, setFile] = useState<File | null>(null);
   const [model, setModel] = useState("htdemucs");
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StemResult | null>(null);
 
@@ -37,13 +38,38 @@ export default function SeparatePage() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setStatus("Uploading...");
+
     try {
-      const data = await api.separate(file, model);
-      setResult(data);
+      const job = await api.separate(file, model);
+      setStatus("Separating stems...");
+
+      const poll = async () => {
+        try {
+          const jobResult = await api.getSeparationStatus(job.job_id);
+          if (jobResult.status === "completed" && jobResult.result) {
+            setResult(jobResult.result as StemResult);
+            setLoading(false);
+            setStatus("");
+          } else if (jobResult.status === "failed") {
+            setError(jobResult.error || "Separation failed");
+            setLoading(false);
+            setStatus("");
+          } else {
+            setStatus(`Separating stems... (${jobResult.status})`);
+            setTimeout(poll, 2000);
+          }
+        } catch {
+          setError("Connection lost during separation. The job may still be running on the server.");
+          setLoading(false);
+          setStatus("");
+        }
+      };
+      setTimeout(poll, 1000);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to separate stems");
-    } finally {
+      setError(err instanceof ApiError ? err.message : "Failed to start separation");
       setLoading(false);
+      setStatus("");
     }
   }, [file, model]);
 
@@ -136,7 +162,7 @@ export default function SeparatePage() {
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Separating stems...
+              {status || "Separating stems..."}
             </>
           ) : (
             <>

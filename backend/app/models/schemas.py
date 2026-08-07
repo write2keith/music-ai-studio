@@ -88,7 +88,7 @@ class GenerationJobResponse(BaseModel):
     job_id: str
     status: GenerationStatus
     project_id: Optional[str] = None
-    result: Optional[AudioResponse] = None
+    result: Optional[dict] = None
     error: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

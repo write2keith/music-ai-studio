@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Play,
   Pause,
@@ -33,6 +33,11 @@ export default function WaveformEditor() {
   const [regionEnd, setRegionEnd] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
+
+  const [fadeDuration, setFadeDuration] = useState(2);
+  const [normalizeTarget, setNormalizeTarget] = useState(-1);
+
+  const waveformDataRef = useRef<Float32Array | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +115,170 @@ export default function WaveformEditor() {
   // The full wavesurfer.js implementation requires CDN loading which complicates SSR
   // This provides the UI shell with working edit actions
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !fileUrl) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let cancelled = false;
+    const dpr = window.devicePixelRatio || 1;
+
+    const render = async () => {
+      let samples: Float32Array;
+      if (waveformDataRef.current) {
+        samples = waveformDataRef.current;
+      } else {
+        try {
+          const resp = await fetch(fileUrl);
+          const arrayBuffer = await resp.arrayBuffer();
+          const audioCtx = new AudioContext();
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const channel = audioBuffer.getChannelData(0);
+          const step = Math.max(1, Math.floor(channel.length / 2000));
+          const reduced = new Float32Array(Math.ceil(channel.length / step));
+          for (let i = 0; i < reduced.length; i++) {
+            let max = 0;
+            const start = i * step;
+            const end = Math.min(start + step, channel.length);
+            for (let j = start; j < end; j++) {
+              const abs = Math.abs(channel[j]);
+              if (abs > max) max = abs;
+            }
+            reduced[i] = max;
+          }
+          samples = reduced;
+          waveformDataRef.current = reduced;
+          audioCtx.close();
+        } catch {
+          return;
+        }
+      }
+
+      if (cancelled) return;
+
+      const w = canvas.parentElement!.clientWidth;
+      const h = canvas.parentElement!.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      ctx.scale(dpr, dpr);
+
+      ctx.clearRect(0, 0, w, h);
+
+      const mid = h / 2;
+      const barWidth = w / samples.length;
+
+      for (let i = 0; i < samples.length; i++) {
+        const x = i * barWidth;
+        const amp = samples[i];
+        const barH = amp * mid * 0.85;
+        const alpha = amp > 0.6 ? 1 : 0.35 + amp;
+
+        ctx.fillStyle =
+          regionStart !== null &&
+          regionEnd !== null &&
+          i / samples.length >= regionStart / duration &&
+          i / samples.length <= regionEnd / duration
+            ? `rgba(168, 85, 247, ${0.3 + alpha * 0.7})`
+            : `rgba(168, 85, 247, ${alpha * 0.4})`;
+        ctx.fillRect(x, mid - barH, Math.max(barWidth - 0.5, 0.5), barH * 2);
+      }
+
+      if (regionStart !== null) {
+        const x = (regionStart / duration) * w;
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (regionEnd !== null) {
+        const x = (regionEnd / duration) * w;
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    };
+
+    render();
+    return () => { cancelled = true; };
+  }, [fileUrl, duration, regionStart, regionEnd]);
+
+  useEffect(() => {
+    if (!playing || !canvasRef.current || !duration) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let raf: number;
+    const draw = () => {
+      if (!audioRef.current) return;
+      const ct = audioRef.current.currentTime;
+      const progress = ct / duration;
+      const w = canvas.parentElement!.clientWidth;
+      const h = canvas.parentElement!.clientHeight;
+
+      const prevComposite = ctx.globalCompositeOperation;
+      ctx.clearRect(0, h - 3, w, 3);
+      ctx.fillStyle = "#a855f7";
+      ctx.fillRect(0, h - 3, progress * w, 3);
+      ctx.globalCompositeOperation = prevComposite;
+
+      const px = progress * w;
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(px - 1, 0, 2, h);
+
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, duration]);
+
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!duration || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    const t = (x / w) * duration;
+
+    if (audioRef.current) {
+      audioRef.current.currentTime = t;
+      setCurrentTime(t);
+    }
+
+    setIsDragging(true);
+    setDragStart(t);
+    setRegionStart(t);
+    setRegionEnd(null);
+  }, [duration]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging || !duration || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    const t = Math.max(0, Math.min(duration, (x / w) * duration));
+    setRegionEnd(t > dragStart ? t : dragStart);
+    if (t < dragStart) {
+      setRegionStart(t);
+      setRegionEnd(dragStart);
+    }
+  }, [isDragging, duration, dragStart]);
+
+  const handleCanvasMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
   const handleEditAction = useCallback(
     async (action: string) => {
       if (!file) {
@@ -135,13 +304,13 @@ export default function WaveformEditor() {
             result = await api.edit.trim(file, regionStart, regionEnd);
             break;
           case "normalize":
-            result = await api.edit.normalize(file, -1.0);
+            result = await api.edit.normalize(file, normalizeTarget);
             break;
           case "fade-in":
-            result = await api.edit.fade(file, 2, 0);
+            result = await api.edit.fade(file, fadeDuration, 0);
             break;
           case "fade-out":
-            result = await api.edit.fade(file, 0, 2);
+            result = await api.edit.fade(file, 0, fadeDuration);
             break;
           case "effects":
             result = await api.edit.effects(file, effects);
@@ -152,6 +321,11 @@ export default function WaveformEditor() {
 
         setEditResult(result);
         setEditLabel(action);
+
+        const resp = await fetch(result.url);
+        const blob = await resp.blob();
+        const newFile = new File([blob], result.filename, { type: "audio/wav" });
+        loadFile(newFile);
       } catch (err) {
         setError(
           err instanceof ApiError ? err.message : "Edit operation failed"
@@ -160,7 +334,7 @@ export default function WaveformEditor() {
         setLoading(false);
       }
     },
-    [file, regionStart, regionEnd, effects]
+    [file, regionStart, regionEnd, effects, fadeDuration, normalizeTarget]
   );
 
   const handleSpeedApply = useCallback(async () => {
@@ -172,6 +346,10 @@ export default function WaveformEditor() {
       const result = await api.edit.speed(file, speedFactor);
       setEditResult(result);
       setEditLabel("speed");
+      const resp = await fetch(result.url);
+      const blob = await resp.blob();
+      const newFile = new File([blob], result.filename, { type: "audio/wav" });
+      loadFile(newFile);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Speed change failed");
     } finally {
@@ -188,6 +366,10 @@ export default function WaveformEditor() {
       const result = await api.edit.merge(Array.from(mergeFiles));
       setEditResult(result);
       setEditLabel("merge");
+      const resp = await fetch(result.url);
+      const blob = await resp.blob();
+      const newFile = new File([blob], result.filename, { type: "audio/wav" });
+      loadFile(newFile);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Merge failed");
     } finally {
@@ -283,16 +465,50 @@ export default function WaveformEditor() {
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
+            </div>
+
+            {/* Fade & Normalize params */}
+            <div className="flex items-center gap-4 pt-2 border-t border-daw-border">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-daw-text-dim">Fade:</span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={10}
+                  step={0.5}
+                  value={fadeDuration}
+                  onChange={(e) => setFadeDuration(Number(e.target.value))}
+                  className="w-20 accent-daw-accent h-1"
+                />
+                <span className="text-xs font-mono text-daw-text-muted w-10">{fadeDuration}s</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-daw-text-dim">Norm:</span>
+                <input
+                  type="range"
+                  min={-24}
+                  max={0}
+                  step={1}
+                  value={normalizeTarget}
+                  onChange={(e) => setNormalizeTarget(Number(e.target.value))}
+                  className="w-20 accent-daw-accent h-1"
+                />
+                <span className="text-xs font-mono text-daw-text-muted w-12">{normalizeTarget} dB</span>
               </div>
             </div>
           </div>
+          </div>
 
-          {/* Waveform placeholder */}
+          {/* Waveform */}
           <div className="glass rounded-xl !p-0 overflow-hidden">
-            <div className="h-40 bg-daw-bg flex items-center justify-center relative">
+            <div className="h-40 bg-daw-bg relative cursor-crosshair">
               <canvas
                 ref={canvasRef}
                 className="w-full h-full"
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
               />
               <audio
                 ref={audioRef}
@@ -310,11 +526,6 @@ export default function WaveformEditor() {
                 onEnded={() => setPlaying(false)}
                 className="hidden"
               />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <p className="text-xs text-daw-text-dim">
-                  Waveform &mdash; drag to select, then use edit tools below
-                </p>
-              </div>
             </div>
 
             {/* Selection display */}

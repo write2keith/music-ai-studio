@@ -43,6 +43,7 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
   const [structure, setStructure] = useState<string | null>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingStatus, setGeneratingStatus] = useState("");
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
 
   const handleEnhance = async () => {
@@ -72,23 +73,49 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
       return;
     }
     setGenerating(true);
+    setGeneratingStatus("Submitting...");
+
     try {
       const bpmValue = bpm ? parseInt(bpm.split("-")[0] || "120", 10) : undefined;
-      await api.generate(prompt.trim(), duration, {
+      const job = await api.generate(prompt.trim(), duration, {
         genre: genre || undefined,
         mood: mood || undefined,
         key: key || undefined,
         bpm: bpmValue,
         structure: structure || undefined,
       });
-      toast("success", "Generation started", "Your track is being created. This may take a moment.");
-      setPrompt("");
-      setEnhancedPrompt(null);
-      onGenerate?.();
+
+      setGeneratingStatus("Generating audio...");
+
+      const poll = async () => {
+        try {
+          const jobResult = await api.getGenerationStatus(job.job_id);
+          if (jobResult.status === "completed" && jobResult.result) {
+            setGenerating(false);
+            setGeneratingStatus("");
+            toast("success", "Generation complete", "Your track is ready.");
+            setPrompt("");
+            setEnhancedPrompt(null);
+            onGenerate?.();
+          } else if (jobResult.status === "failed") {
+            setGenerating(false);
+            setGeneratingStatus("");
+            toast("error", "Generation failed", jobResult.error || "Unknown error");
+          } else {
+            setGeneratingStatus(`Generating audio... (${jobResult.status})`);
+            setTimeout(poll, 2000);
+          }
+        } catch {
+          setGenerating(false);
+          setGeneratingStatus("");
+          toast("error", "Generation failed", "Unable to check status.");
+        }
+      };
+      setTimeout(poll, 1500);
     } catch {
-      toast("error", "Generation failed", "Please try again.");
-    } finally {
       setGenerating(false);
+      setGeneratingStatus("");
+      toast("error", "Generation failed", "Please try again.");
     }
   };
 
@@ -224,7 +251,7 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
         {generating ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
-            Generating...
+            {generatingStatus || "Generating..."}
           </>
         ) : (
           <>

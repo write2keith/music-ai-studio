@@ -80,8 +80,11 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("model", model);
-    return upload<StemResult>("/api/separate", fd);
+    return upload<GenerationJob>("/api/separate", fd);
   },
+
+  getSeparationStatus: (jobId: string) =>
+    request<GenerationJob>(`/api/separate/${jobId}`),
 
   getTracks: () => request<Track[]>("/api/tracks"),
 

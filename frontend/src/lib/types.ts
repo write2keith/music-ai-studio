@@ -13,7 +13,7 @@ export interface GenerationJob {
   job_id: string;
   status: "pending" | "processing" | "completed" | "failed";
   project_id?: string;
-  result?: AudioResult;
+  result?: AudioResult | StemResult;
   error?: string;
   created_at: string;
   updated_at?: string;

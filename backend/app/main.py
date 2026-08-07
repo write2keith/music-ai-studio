@@ -142,4 +142,5 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.ENVIRONMENT == "development",
+        reload_excludes=["output/*", ".tox/*", ".git/*", "__pycache__/*"],
     )

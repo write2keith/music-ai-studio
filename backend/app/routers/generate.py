@@ -101,7 +101,7 @@ async def get_generation_status(job_id: str):
 
 @router.post(
     "/separate",
-    response_model=StemResponse,
+    response_model=GenerationJobResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 async def separate(
@@ -121,17 +121,48 @@ async def separate(
         content = await file.read()
         upload_path.write_bytes(content)
 
-        from ..services.separator import separate as separate_stems
-        result = separate_stems(str(upload_path), model_name=model)
+        job = queue.submit("separate", {
+            "audio_path": str(upload_path),
+            "model": model,
+        })
 
-        stem_urls = {}
-        for name, path in result["stems"].items():
-            stem_name = Path(path).name
-            stem_urls[name] = f"/api/audio/stems/{result['model']}/{Path(result['source']).stem}/{stem_name}"
-
-        return StemResponse(model=result["model"], stems=stem_urls)
-
-    except HTTPException:
-        raise
+        return GenerationJobResponse(
+            job_id=job.id,
+            status=job.status,
+            created_at=job.created_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/separate/{job_id}",
+    response_model=GenerationJobResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_separation_status(job_id: str):
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    response = GenerationJobResponse(
+        job_id=job.id,
+        status=job.status,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        error=job.error,
+    )
+
+    if job.status == JobStatus.COMPLETED and job.result:
+        stem_urls = {}
+        for name, path in job.result.get("stems", {}).items():
+            stem_name = Path(path).name
+            stem_urls[name] = (
+                f"/api/audio/stems/{job.result['model']}/"
+                f"{Path(job.result['source']).stem}/{stem_name}"
+            )
+        response.result = {"model": job.result["model"], "stems": stem_urls}
+
+    return response

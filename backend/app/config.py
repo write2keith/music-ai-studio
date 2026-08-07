@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     MUSICGEN_DURATION: int = 10
     HF_TOKEN: str = ""
     GENERATION_MODE: str = "auto"  # auto, local, cloud
+    SEPARATION_MODE: str = "auto"  # auto, local, cloud
+    DEMUCS_MODEL_ID: str = "facebook/htdemucs"
 
     # Cloud Storage (S3/R2)
     STORAGE_PROVIDER: str = "local"

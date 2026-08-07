@@ -18,6 +18,11 @@ python --version
 ```powershell
 git clone https://github.com/write2keith/music-ai-studio.git
 cd E:\music-ai-studio
+```
+
+**If `git pull` fails with "refusing to merge unrelated histories":**
+
+```powershell
 git fetch origin
 git reset --hard origin/master
 ```
@@ -40,7 +45,7 @@ python -m venv venv
 ```
 
 ### Issue: PowerShell Script Execution Blocked
-If you get `running scripts is disabled on this system`, activate via cmd or use python directly:
+If you get `running scripts are disabled on this system`, activate via cmd or use python directly:
 
 ```powershell
 # Option A: Use cmd to activate
@@ -77,14 +82,24 @@ If you see `You cannot have two parallel pages that resolve to the same path` fo
 
 ```powershell
 cd E:\music-ai-studio
-git pull
+git fetch origin
+git reset --hard origin/master
 ```
 
 Frontend runs on `http://localhost:3000`
 
 ---
 
-## Step 5: Verify Everything Works
+## Step 5: Configure Cloud AI (No GPU Needed)
+
+1. Get a free token at https://huggingface.co/settings/tokens
+2. Open `http://localhost:3000/settings`
+3. Select "HuggingFace" provider
+4. Paste your token, click Save
+
+---
+
+## Step 6: Verify Everything Works
 
 1. Open `http://localhost:3000` in browser
 2. You should see the DAW-themed Music AI Studio dashboard
@@ -101,6 +116,7 @@ Frontend runs on `http://localhost:3000`
 | Backend API | http://localhost:8000 |
 | Login | http://localhost:3000/login |
 | Studio | http://localhost:3000/studio |
+| Settings | http://localhost:3000/settings |
 | Community | http://localhost:3000/community |
 | Library | http://localhost:3000/library |
 
@@ -116,4 +132,12 @@ cd E:\music-ai-studio\backend
 # Terminal 2 - Frontend
 cd E:\music-ai-studio\frontend
 npm run dev
+```
+
+## Pulling Updates
+
+```powershell
+cd E:\music-ai-studio
+git fetch origin
+git reset --hard origin/master
 ```

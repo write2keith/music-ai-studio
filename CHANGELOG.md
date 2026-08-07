@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.2.0] - 2026-08-06
+
+### Added
+- Async stem separation: job queue-based architecture, submit returns `job_id` instantly, frontend polls status every 2s with progress display
+- Cloud stem separation: HuggingFace Inference API fallback when local demucs/ffmpeg unavailable, same auto/local/cloud mode as generation
+- WaveformEditor canvas rendering: real waveform visualization via AudioContext, drag-to-select regions, click-to-seek, playhead cursor animation
+- WaveformEditor edit chaining: each edit result becomes the new working file for progressive editing
+- Configurable fade/normalize: inline sliders for fade duration (0.5-10s) and normalize target (-24 to 0 dB)
+- Audio compressor tool: scipy/numpy-based WAV compression with sample rate/bit depth/mono controls, on /tools page
+- Instrument note detection: FFT-based monophonic pitch transcription, MIDI note names + timing, on /tools page
+- Studio generation polling: PromptBuilder now submits async job and polls for completion with live status text
+- `SEPARATION_MODE` config (auto/cloud/local) and `DEMUCS_MODEL_ID` settings
+
+### Fixed
+- Backend reload prevents uvicorn from restarting when demucs writes stem files to output/ (added `--reload-exclude "output/*"`)
+- Frontend separation polling hardened with try/catch for graceful network failure handling
+- `GenerationJobResponse.result` widened to `Optional[dict]` to accept both audio and stem response formats
+- Frontend `GenerationJob.result` type widened to `AudioResult | StemResult`
+
+### Changed
+- Separation mode added to `get_separator_info()` and health endpoint
+- `.gitignore`: added `frontend-legacy/` and `push_*.py` entries
+
 ## [2.1.0] - 2026-08-06
 
 ### Added
