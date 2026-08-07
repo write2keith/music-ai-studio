@@ -123,14 +123,28 @@ async def compress_audio(
     original_content = await file.read()
     original_size = len(original_content)
 
-    tmp_path = output_dir / f"compress_in_{uuid.uuid4().hex[:12]}.wav"
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    tmp_path = output_dir / f"compress_in_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(original_content)
 
+    wav_path = tmp_path
     try:
-        sr, data = wav.read(str(tmp_path))
+        sr, data = wav.read(str(wav_path))
     except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Unable to read audio file. Only WAV format is supported.")
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp_path))
+            wav_path = output_dir / f"compress_in_{uuid.uuid4().hex[:12]}.wav"
+            audio.export(str(wav_path), format="wav")
+            tmp_path.unlink(missing_ok=True)
+            sr, data = wav.read(str(wav_path))
+        except Exception as e:
+            for p in [tmp_path, wav_path]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unable to read audio file. {str(e)[:100]}",
+            )
 
     if data.ndim > 1:
         if to_mono:
@@ -158,7 +172,8 @@ async def compress_audio(
     compressed_size = out_path.stat().st_size
     reduction_pct = round((1 - compressed_size / original_size) * 100, 1) if original_size > 0 else 0
 
-    tmp_path.unlink(missing_ok=True)
+    for p in [tmp_path, wav_path]:
+        p.unlink(missing_ok=True)
 
     logger.info(f"Compressed: {original_size}B -> {compressed_size}B ({reduction_pct}% reduction)")
 
