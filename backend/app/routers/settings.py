@@ -62,6 +62,11 @@ _active_model = ""
 _active_hf_token = ""
 
 
+@router.get("")
+async def get_settings_root():
+    return {"ok": True, "routes": ["/api/settings/generation"]}
+
+
 @router.get("/generation")
 async def get_generation_settings():
     model_info = get_model_info()

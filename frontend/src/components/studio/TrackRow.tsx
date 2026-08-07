@@ -4,7 +4,7 @@ import { useRef, useEffect } from "react";
 import { Play, Pause, Mic, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface TrackData {
+export interface TrackData {
   id: string;
   name: string;
   color: string;

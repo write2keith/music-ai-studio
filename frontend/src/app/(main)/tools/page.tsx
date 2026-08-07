@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
+import type { CompressResult, TranscribeResult, TranscribeNote } from "@/lib/api";
 import { PitchGraph } from "@/components/PitchGraph";
 
 interface DownloadResult {
@@ -36,6 +37,19 @@ interface DownloadResult {
 }
 
 const NOTE_NAMES_SHORT = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const SAMPLE_RATES = [
+  { value: 44100, label: "44.1k" },
+  { value: 22050, label: "22k" },
+  { value: 16000, label: "16k" },
+  { value: 11025, label: "11k" },
+  { value: 8000, label: "8k" },
+];
+
+const BIT_DEPTHS = [
+  { value: 16, label: "16-bit" },
+  { value: 8, label: "8-bit" },
+];
 
 export default function ToolsPage() {
   const [url, setUrl] = useState("");
@@ -775,7 +789,7 @@ export default function ToolsPage() {
             </div>
 
             <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-              {transcribeResult.notes.slice(0, 50).map((note, i) => (
+              {transcribeResult.notes.slice(0, 50).map((note: TranscribeNote, i: number) => (
                 <div
                   key={i}
                   className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-daw-surface-3/50 text-xs"

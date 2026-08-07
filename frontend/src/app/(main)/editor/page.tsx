@@ -217,7 +217,7 @@ export default function EditorPage() {
 
           <Button
             size="sm"
-            variant={isPlaying ? "secondary" : "default"}
+            variant={isPlaying ? "secondary" : "primary"}
             onClick={isPlaying ? pauseAll : playAll}
             disabled={isRecording}
           >

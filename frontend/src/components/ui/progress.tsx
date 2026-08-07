@@ -4,16 +4,17 @@ interface ProgressProps {
   value: number;
   max?: number;
   size?: "sm" | "md";
-  color?: "accent" | "cyan" | "green";
+  color?: "accent" | "cyan" | "green" | "orange";
   className?: string;
 }
 
 export function Progress({ value, max = 100, size = "sm", color = "accent", className }: ProgressProps) {
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
-  const colors = {
+  const colors: Record<string, string> = {
     accent: "bg-daw-accent",
     cyan: "bg-daw-cyan",
     green: "bg-daw-green",
+    orange: "bg-orange-500",
   };
 
   return (

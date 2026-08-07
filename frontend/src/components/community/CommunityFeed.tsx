@@ -88,17 +88,17 @@ function CommunityCard({
   const audioPlayer = useAudioPlayer();
   const isPlaying = audioPlayer.isCurrentUrl(post.url) && audioPlayer.isPlaying;
   const { execute: forkTrack, loading: forking } = useFork(() => onForkSuccess());
-  const { add: addToast } = useToast();
+  const { toast: addToast } = useToast();
   const [forkCount, setForkCount] = useState(post.forks);
 
   async function handleFork() {
     try {
       await forkTrack(post.id);
       setForkCount((c) => c + 1);
-      addToast("Track forked!", "Added to your library", "success");
+      addToast("success", "Track forked!", "Added to your library");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      addToast("Fork failed", msg || "Please try again.", "error");
+      addToast("error", "Fork failed", msg || "Please try again.");
     }
   }
 

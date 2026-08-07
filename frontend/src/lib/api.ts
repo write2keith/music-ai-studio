@@ -244,7 +244,7 @@ export const api = {
 
 export { ApiError };
 
-interface TranscribeNote {
+export interface TranscribeNote {
   start_time: number;
   end_time: number;
   pitch: number;
@@ -252,7 +252,7 @@ interface TranscribeNote {
   velocity: number;
 }
 
-interface TranscribeResult {
+export interface TranscribeResult {
   ok: boolean;
   notes: TranscribeNote[];
   duration_secs: number;
@@ -260,7 +260,7 @@ interface TranscribeResult {
   note_count: number;
 }
 
-interface CompressResult {
+export interface CompressResult {
   ok: boolean;
   original_size: number;
   compressed_size: number;

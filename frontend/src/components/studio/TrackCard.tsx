@@ -22,7 +22,7 @@ export function TrackCard({ track, variant = "grid" }: TrackCardProps) {
   const [liked, setLiked] = useState(false);
   const isPlaying = audioPlayer.isCurrentUrl(track.url) && audioPlayer.isPlaying;
   const { execute: forkTrack, loading: forking } = useFork();
-  const { add: addToast } = useToast();
+  const { toast: addToast } = useToast();
 
   const handlePlay = () => {
     audioPlayer.toggle(track.url);
@@ -31,10 +31,10 @@ export function TrackCard({ track, variant = "grid" }: TrackCardProps) {
   const handleFork = async () => {
     try {
       await forkTrack(track.id);
-      addToast("Track forked!", "Added to your library", "success");
+      addToast("success", "Track forked!", "Added to your library");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      addToast("Fork failed", msg || "Please try again.", "error");
+      addToast("error", "Fork failed", msg || "Please try again.");
     }
   };
 
