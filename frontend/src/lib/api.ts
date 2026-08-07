@@ -232,6 +232,13 @@ export const api = {
       fd.append("recording", recording);
       return upload<VocalScoreResult>("/api/tools/vocal-score", fd);
     },
+    vocalPrep: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<VocalPrepResult>("/api/tools/vocal-prep", fd);
+    },
+    vocalPrepStatus: (jobId: string) =>
+      request<VocalPrepResult>(`/api/tools/vocal-prep/${jobId}`),
   },
 };
 
@@ -291,4 +298,13 @@ interface VocalScoreResult {
   user_duration: number;
   total_frames: number;
   matched_frames: number;
+}
+
+interface VocalPrepResult {
+  ok: boolean;
+  job_id: string;
+  status: string;
+  pitch_data: PitchPoint[];
+  vocals_url: string;
+  duration_secs: number;
 }

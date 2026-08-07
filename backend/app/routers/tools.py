@@ -707,3 +707,67 @@ async def vocal_score(
         total_frames=result["total_frames"],
         matched_frames=result["matched_frames"],
     )
+
+
+class VocalPrepResponse(BaseModel):
+    ok: bool = True
+    job_id: str = ""
+    status: str = "queued"
+    pitch_data: list[dict] = []
+    vocals_url: str = ""
+    duration_secs: float = 0.0
+
+
+@router.post("/vocal-prep", response_model=VocalPrepResponse)
+async def vocal_prep(
+    file: UploadFile = File(...),
+):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    save_path = output_dir / f"vocal_prep_{uuid.uuid4().hex[:12]}{ext}"
+    save_path.write_bytes(content)
+
+    from ..queue.worker import queue
+    job_id = queue.enqueue(
+        "vocal_prep",
+        {"audio_path": str(save_path), "model": "htdemucs"},
+    )
+    logger.info(f"Vocal prep job {job_id} enqueued for {save_path}")
+
+    return VocalPrepResponse(ok=True, job_id=job_id, status="queued")
+
+
+@router.get("/vocal-prep/{job_id}", response_model=VocalPrepResponse)
+async def vocal_prep_status(job_id: str):
+    from ..queue.worker import queue, JobStatus
+
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job["status"] == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+
+    resp = VocalPrepResponse(
+        ok=True,
+        job_id=job_id,
+        status=job["status"],
+    )
+
+    if job["status"] == JobStatus.COMPLETED and job.get("result"):
+        result = job["result"]
+        pitch_contour = result.get("pitch_contour", [])
+        vocals_path = result.get("vocals_path", "")
+        duration = pitch_contour[-1]["time"] if pitch_contour else 0
+
+        if vocals_path:
+            vocals_name = Path(vocals_path).name
+            resp.vocals_url = f"/api/audio/stems/{result['model']}/{Path(result['stems_dir']).name}/{vocals_name}"
+
+        resp.pitch_data = pitch_contour
+        resp.duration_secs = round(duration, 1)
+
+    return resp
