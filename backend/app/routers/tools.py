@@ -1223,3 +1223,101 @@ async def lyric_transcribe_status(job_id: str):
         resp.language = r.get("language", "")
 
     return resp
+
+
+# ── Guitar Tab Generator ──────────────────────────────────────
+
+GUITAR_TUNING_EADGBE = [40, 45, 50, 55, 59, 64]
+GUITAR_STRINGS = ["E", "A", "D", "G", "B", "e"]
+MAX_FRET = 22
+
+
+def _midi_to_tab(midi: int) -> list[tuple[int, int]]:
+    candidates = []
+    for s, open_midi in enumerate(GUITAR_TUNING_EADGBE):
+        fret = midi - open_midi
+        if 0 <= fret <= MAX_FRET:
+            candidates.append((s, fret))
+    if not candidates:
+        return []
+    candidates.sort(key=lambda x: x[1] + (5 - x[0]) * 2)
+    return candidates
+
+
+class TabNote(BaseModel):
+    start_time: float
+    end_time: float
+    pitch: int
+    note_name: str
+    string: int
+    string_name: str
+    fret: int
+    velocity: float
+
+
+class GuitarTabResponse(BaseModel):
+    ok: bool = True
+    notes: list[TabNote] = []
+    duration_secs: float = 0.0
+    note_count: int = 0
+    tuning: list[str] = ["E", "A", "D", "G", "B", "e"]
+
+
+@router.post("/guitar-tab", response_model=GuitarTabResponse)
+async def guitar_tab(file: UploadFile = File(...)):
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    tmp_path = output_dir / f"tab_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.write_bytes(content)
+
+    wav_path = tmp_path
+    try:
+        import scipy.io.wavfile
+        scipy.io.wavfile.read(str(wav_path))
+    except Exception:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp_path))
+            wav_path = output_dir / f"tab_{uuid.uuid4().hex[:12]}.wav"
+            audio.export(str(wav_path), format="wav")
+            tmp_path.unlink(missing_ok=True)
+        except Exception as e:
+            for p in [tmp_path, wav_path]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+
+    try:
+        result = _detect_notes_fft(str(wav_path))
+    except Exception as e:
+        wav_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Note detection failed: {str(e)[:200]}")
+
+    wav_path.unlink(missing_ok=True)
+
+    tab_notes = []
+    for n in result["notes"]:
+        midi = n["pitch"]
+        candidates = _midi_to_tab(midi)
+        if not candidates:
+            continue
+        best_s, best_f = candidates[0]
+        tab_notes.append(TabNote(
+            start_time=n["start_time"],
+            end_time=n["end_time"],
+            pitch=midi,
+            note_name=n["note_name"],
+            string=best_s,
+            string_name=GUITAR_STRINGS[best_s],
+            fret=best_f,
+            velocity=n["velocity"],
+        ))
+
+    return GuitarTabResponse(
+        ok=True,
+        notes=tab_notes,
+        duration_secs=result["duration_secs"],
+        note_count=len(tab_notes),
+    )

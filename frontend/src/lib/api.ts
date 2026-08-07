@@ -266,6 +266,11 @@ export const api = {
     },
     lyricTranscribeStatus: (jobId: string) =>
       request<LyricTranscribeResult>(`/api/tools/lyric-transcribe/${jobId}`),
+    guitarTab: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<GuitarTabResult>("/api/tools/guitar-tab", fd);
+    },
   },
 };
 
@@ -382,4 +387,23 @@ export interface LyricTranscribeResult {
   lyrics: LyricLine[];
   full_text: string;
   language: string;
+}
+
+export interface TabNote {
+  start_time: number;
+  end_time: number;
+  pitch: number;
+  note_name: string;
+  string: number;
+  string_name: string;
+  fret: number;
+  velocity: number;
+}
+
+export interface GuitarTabResult {
+  ok: boolean;
+  notes: TabNote[];
+  duration_secs: number;
+  note_count: number;
+  tuning: string[];
 }

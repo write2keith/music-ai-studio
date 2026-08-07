@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
-import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult } from "@/lib/api";
+import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult, GuitarTabResult, TabNote } from "@/lib/api";
 import { PitchGraph } from "@/components/PitchGraph";
 
 interface DownloadResult {
@@ -120,6 +120,11 @@ export default function ToolsPage() {
   const [lyricTranscribing, setLyricTranscribing] = useState(false);
   const [lyricError, setLyricError] = useState("");
   const [lyricResult, setLyricResult] = useState<LyricTranscribeResult | null>(null);
+
+  const [tabFile, setTabFile] = useState<File | null>(null);
+  const [tabGenerating, setTabGenerating] = useState(false);
+  const [tabError, setTabError] = useState("");
+  const [tabResult, setTabResult] = useState<GuitarTabResult | null>(null);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -285,6 +290,20 @@ export default function ToolsPage() {
         clearInterval(t);
       }
     }, 2000);
+  }
+
+  async function handleGuitarTab() {
+    if (!tabFile) return;
+    setTabGenerating(true);
+    setTabError("");
+    setTabResult(null);
+    try {
+      const data = await api.tools.guitarTab(tabFile);
+      setTabResult(data);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    }
+    setTabGenerating(false);
   }
 
   async function startRecording() {
@@ -1178,6 +1197,157 @@ export default function ToolsPage() {
                   </div>
                 ))}
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Guitar Tab Generator */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Music className="w-5 h-5 text-orange-400" />
+          Guitar Tab Generator
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Generate Guitar-Pro-style tablature from any melody or solo audio.
+          Detects notes and maps them to optimal string/fret positions for standard EADGBE tuning.
+        </p>
+      </div>
+
+      <div className="glass rounded-xl p-5 space-y-4">
+        <div
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files[0];
+            if (f) { setTabFile(f); setTabResult(null); setTabError(""); }
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => document.getElementById("tab-file-input")?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
+            tabFile
+              ? "border-daw-green/50 bg-daw-green/5"
+              : "border-daw-border hover:border-orange-400/40 hover:bg-daw-surface-2"
+          )}
+        >
+          <input
+            id="tab-file-input"
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) { setTabFile(f); setTabResult(null); setTabError(""); }
+            }}
+          />
+          {tabFile ? (
+            <div className="flex items-center justify-center gap-2 text-daw-green">
+              <FileAudio className="w-5 h-5" />
+              <span className="text-sm font-medium">{tabFile.name}</span>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Music className="w-8 h-8 mx-auto text-daw-text-dim" />
+              <p className="text-sm text-daw-text-muted">Drop a melody recording (guitar solo, bass line, vocal melody)</p>
+            </div>
+          )}
+        </div>
+
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleGuitarTab}
+          disabled={tabGenerating || !tabFile}
+        >
+          {tabGenerating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Generating tab...
+            </>
+          ) : (
+            <>
+              <Music className="w-4 h-4" />
+              Generate Tablature
+            </>
+          )}
+        </Button>
+
+        {tabError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {tabError}
+          </div>
+        )}
+
+        <AnimatePresence>
+          {tabResult && tabResult.notes.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-4 border border-orange-400/20 rounded-xl p-4"
+            >
+              <div className="flex items-center gap-2">
+                <Badge variant="accent" className="text-[10px]">
+                  {tabResult.note_count} notes
+                </Badge>
+                <span className="text-xs text-daw-text-dim">
+                  {formatDuration(tabResult.duration_secs)} &middot; Standard EADGBE
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <div className="inline-flex gap-0 min-w-full">
+                  {(tabResult.notes.slice(0, 40) as TabNote[]).map((note, i) => (
+                    <div key={i} className="flex flex-col shrink-0" style={{ width: 28 }}>
+                      <div className="text-[9px] text-daw-text-dim text-center mb-1">
+                        {note.start_time.toFixed(1)}
+                      </div>
+                      {[0, 1, 2, 3, 4, 5].map((s) => (
+                        <div
+                          key={s}
+                          className={cn(
+                            "h-5 border-t border-daw-border flex items-center justify-center text-[10px] font-mono font-bold",
+                            s === 0 ? "border-t-2" : "",
+                            s === 5 ? "border-b-2" : "",
+                            note.string === s
+                              ? "text-orange-300"
+                              : "text-daw-text-dim"
+                          )}
+                        >
+                          {note.string === s ? note.fret : "-"}
+                        </div>
+                      ))}
+                      <div className="text-[8px] text-daw-text-dim text-center mt-0.5">
+                        {note.note_name}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {tabResult.notes.length > 40 && (
+                <p className="text-[10px] text-daw-text-dim text-center">
+                  +{tabResult.notes.length - 40} more notes (showing first 40)
+                </p>
+              )}
+
+              {/* Note list */}
+              <details className="cursor-pointer">
+                <summary className="text-xs text-daw-text-dim hover:text-daw-text transition-colors">
+                  Show all notes ({tabResult.note_count})
+                </summary>
+                <div className="max-h-48 overflow-y-auto space-y-0.5 mt-2 pr-1">
+                  {(tabResult.notes as TabNote[]).map((note, i) => (
+                    <div key={i} className="flex items-center gap-2 px-2 py-1 rounded bg-daw-surface-3/50 text-xs">
+                      <span className="w-12 text-daw-text-dim tabular-nums">{note.start_time.toFixed(2)}s</span>
+                      <span className="font-mono font-bold text-orange-300 w-10">{note.note_name}</span>
+                      <span className="text-daw-text-dim">String {note.string_name}</span>
+                      <span className="font-mono font-bold text-daw-text">Fret {note.fret}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </motion.div>
           )}
         </AnimatePresence>
