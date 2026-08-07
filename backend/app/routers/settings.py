@@ -174,8 +174,38 @@ async def update_separation_settings(body: SeparationSettings):
     if body.hf_token:
         _active_sep_token = body.hf_token
 
+    from ..services.separator import set_active_separation_mode
+    set_active_separation_mode(body.mode)
+
     return {
         "ok": True,
         "mode": _active_sep_mode,
         "token_set": bool(settings.HF_TOKEN or _active_sep_token),
+    }
+
+
+# ── LLM Settings ──────────────────────────────────────────────
+
+class LLMSettings(BaseModel):
+    api_key: str = ""
+    base_url: str = "https://api.deepseek.com/v1"
+    model: str = "deepseek-chat"
+
+
+@router.get("/llm")
+async def get_llm_settings():
+    return {
+        "ok": True,
+        "configured": bool(settings.USER_LLM_API_KEY),
+        "base_url": settings.USER_LLM_BASE_URL,
+        "model": settings.USER_LLM_MODEL,
+    }
+
+
+@router.post("/llm")
+async def update_llm_settings(body: LLMSettings):
+    return {
+        "ok": True,
+        "message": "Set USER_LLM_API_KEY, USER_LLM_BASE_URL, USER_LLM_MODEL in your .env file. Runtime override not available for LLM keys.",
+        "configured": bool(settings.USER_LLM_API_KEY),
     }

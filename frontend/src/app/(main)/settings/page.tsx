@@ -390,6 +390,26 @@ export default function SettingsPage() {
           </div>
         </>
       )}
+
+      {/* LLM Prompt Enhancer */}
+      <div className="pt-6 border-t border-daw-border">
+        <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
+          <Zap className="w-5 h-5 text-daw-text-muted" />
+          LLM Prompt Enhancer
+        </h2>
+        <p className="text-xs text-daw-text-muted mt-1">
+          Auto-enhances generation prompts using an LLM. Set USER_LLM_API_KEY in your backend .env file. Rule-based fallback is used when no key is configured.
+        </p>
+      </div>
+      <div className="glass rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-daw-text">Status</h3>
+            <p className="text-xs text-daw-text-muted">Checks if USER_LLM_API_KEY is set in the backend environment.</p>
+          </div>
+          <LLMStatusBadge />
+        </div>
+      </div>
     </div>
   );
 }
@@ -457,5 +477,23 @@ function ProviderCard({
         </div>
       </div>
     </button>
+  );
+}
+
+function LLMStatusBadge() {
+  const [status, setStatus] = useState<{ configured: boolean } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/llm", { credentials: "include" })
+      .then((r) => r.json())
+      .then(setStatus);
+  }, []);
+
+  if (!status) return <Loader2 className="w-4 h-4 animate-spin text-daw-text-dim" />;
+
+  return (
+    <Badge variant={status.configured ? "green" : "default"}>
+      {status.configured ? "Configured — LLM active" : "Not configured — using rule-based fallback"}
+    </Badge>
   );
 }

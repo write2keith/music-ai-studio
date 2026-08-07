@@ -7,6 +7,20 @@ import { TrackRow, type TrackData } from "@/components/studio/TrackRow";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+function MetronomeIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 2v2" />
+      <path d="M12 8v2" />
+      <path d="M4.93 10.93l1.41 1.41" />
+      <path d="M2 18h2" />
+      <path d="M20 18h2" />
+      <path d="M18.07 12.34l-1.41-1.41" />
+      <path d="M12 10a8 8 0 0 0-8 8h16a8 8 0 0 0-8-8z" />
+    </svg>
+  );
+}
+
 const TRACK_COLORS = ["violet", "cyan", "rose", "green", "yellow", "blue", "orange"];
 
 function createTrack(id: string, name: string, color: string): TrackData {
@@ -45,6 +59,48 @@ export default function EditorPage() {
 
   const maxDuration = Math.max(...tracks.map((t) => t.duration), 10);
 
+  const [metronomeOn, setMetronomeOn] = useState(false);
+  const metronomeCtxRef = useRef<AudioContext | null>(null);
+  const metronomeIntervalRef = useRef<number | null>(null);
+  const beatCountRef = useRef(0);
+
+  function tickMetronome() {
+    const ctx = metronomeCtxRef.current;
+    if (!ctx || ctx.state === "closed") return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "triangle";
+    const isDownbeat = beatCountRef.current % 4 === 0;
+    osc.frequency.value = isDownbeat ? 880 : 660;
+    gain.gain.setValueAtTime(isDownbeat ? 0.3 : 0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    osc.start(now);
+    osc.stop(now + 0.05);
+    beatCountRef.current++;
+  }
+
+  function startMetronome() {
+    if (metronomeCtxRef.current?.state === "closed" || !metronomeCtxRef.current) {
+      metronomeCtxRef.current = new AudioContext();
+    }
+    const intervalMs = (60 / bpm) * 1000;
+    beatCountRef.current = 0;
+    tickMetronome();
+    metronomeIntervalRef.current = window.setInterval(tickMetronome, intervalMs);
+  }
+
+  function stopMetronome() {
+    if (metronomeIntervalRef.current) {
+      clearInterval(metronomeIntervalRef.current);
+      metronomeIntervalRef.current = null;
+    }
+    metronomeCtxRef.current?.close();
+    metronomeCtxRef.current = null;
+  }
+
   const animatePlayhead = useCallback(() => {
     const elapsed = (Date.now() - startRef.current) / 1000;
     playheadRef.current = elapsed;
@@ -60,12 +116,14 @@ export default function EditorPage() {
     setIsPlaying(true);
     startRef.current = Date.now() - playheadRef.current * 1000;
     animRef.current = requestAnimationFrame(animatePlayhead);
+    if (metronomeOn) startMetronome();
   }
 
   function stopAll() {
     setIsPlaying(false);
     setIsRecording(false);
     cancelAnimationFrame(animRef.current);
+    stopMetronome();
     playheadRef.current = 0;
     setPlayheadTime(0);
     mediaRecorderRef.current?.stop();
@@ -77,6 +135,7 @@ export default function EditorPage() {
   function pauseAll() {
     setIsPlaying(false);
     cancelAnimationFrame(animRef.current);
+    stopMetronome();
   }
 
   async function startRecording() {
@@ -185,6 +244,7 @@ export default function EditorPage() {
   useEffect(() => {
     return () => {
       cancelAnimationFrame(animRef.current);
+      stopMetronome();
     };
   }, []);
 
@@ -200,10 +260,38 @@ export default function EditorPage() {
 
         {/* Transport */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-daw-surface-2 text-xs text-daw-text-dim">
-            <span>{bpm}</span>
-            <span>BPM</span>
+          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-daw-surface-2 text-xs">
+            <input
+              type="number"
+              min={40}
+              max={300}
+              value={bpm}
+              onChange={(e) => setBpm(Math.max(40, Math.min(300, Number(e.target.value) || 120)))}
+              className="w-10 bg-transparent text-daw-text text-center outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="text-daw-text-dim">BPM</span>
           </div>
+
+          <button
+            onClick={() => {
+              const next = !metronomeOn;
+              setMetronomeOn(next);
+              if (!next) stopMetronome();
+              else if (isPlaying) startMetronome();
+            }}
+            className={cn(
+              "p-1.5 rounded-lg transition-colors",
+              metronomeOn
+                ? "bg-daw-accent/20 text-daw-accent"
+                : "bg-daw-surface-2 text-daw-text-dim hover:text-daw-text"
+            )}
+            title="Toggle metronome"
+          >
+            <MetronomeIcon className="w-4 h-4" />
+          </button>
+          {metronomeOn && isPlaying && (
+            <div className="w-1.5 h-1.5 rounded-full bg-daw-accent animate-pulse" />
+          )}
 
           <Button
             size="sm"

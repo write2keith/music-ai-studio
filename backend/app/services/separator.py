@@ -8,26 +8,20 @@ from ..config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+_active_separation_mode: str | None = None
+
+
+def set_active_separation_mode(mode: str):
+    global _active_separation_mode
+    _active_separation_mode = mode
+
 FFMPEG_AVAILABLE = False
 DEMUCS_AVAILABLE = False
 CLOUD_AVAILABLE = bool(settings.HF_TOKEN)
 
-try:
-    import subprocess
-    subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
-    FFMPEG_AVAILABLE = True
-except Exception:
-    pass
-
-try:
-    from demucs import separate as demucs_separate
-    DEMUCS_AVAILABLE = True
-except ImportError:
-    pass
-
 
 def _use_cloud() -> bool:
-    mode = settings.SEPARATION_MODE
+    mode = _active_separation_mode or settings.SEPARATION_MODE
     if mode == "cloud":
         return True
     if mode == "local":
