@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: [".monkeycode-ai.live"],
 
+  experimental: {
+    proxyClientMaxBodySize: "500mb",
+  },
+
   async rewrites() {
     return [
       {
