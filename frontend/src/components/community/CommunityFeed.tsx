@@ -96,7 +96,10 @@ function CommunityCard({
       await forkTrack(post.id);
       setForkCount((c) => c + 1);
       addToast("Track forked!", "Added to your library", "success");
-    } catch {}
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast("Fork failed", msg || "Please try again.", "error");
+    }
   }
 
   return (

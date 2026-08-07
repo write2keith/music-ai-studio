@@ -11,22 +11,22 @@ import type {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string
-  ) {
+  status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = "ApiError";
   }
 }
 
-async function request<T>(
-  path: string,
-  options?: RequestInit
-): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
+    ...init,
     credentials: "include",
+    headers: {
+      ...(init?.headers),
+      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+    },
   });
 
   if (!res.ok) {

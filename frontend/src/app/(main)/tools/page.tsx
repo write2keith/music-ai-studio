@@ -128,8 +128,9 @@ export default function ToolsPage() {
         setHistory((prev) => [data, ...prev.slice(0, 9)]);
         setUrl("");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg || "Network error");
     }
     setDownloading(false);
   }
@@ -160,8 +161,9 @@ export default function ToolsPage() {
       }
 
       setCompressResult(data);
-    } catch {
-      setCompressError("Network error");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setCompressError(msg || "Network error");
     }
     setCompressing(false);
   }
@@ -175,8 +177,9 @@ export default function ToolsPage() {
     try {
       const data = await api.tools.transcribe(transcribeFile);
       setTranscribeResult(data);
-    } catch {
-      setTranscribeError("Network error");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTranscribeError(msg || "Network error");
     }
     setTranscribing(false);
   }

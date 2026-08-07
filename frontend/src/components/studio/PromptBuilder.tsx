@@ -60,8 +60,9 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
       });
       setEnhancedPrompt(result.enhanced_prompt);
       toast("success", "Prompt enhanced", "AI has enriched your prompt with professional details.");
-    } catch {
-      toast("error", "Enhancement failed", "Please try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast("error", "Enhancement failed", msg || "Please try again.");
     } finally {
       setEnhancing(false);
     }
@@ -105,17 +106,19 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
             setGeneratingStatus(`Generating audio... (${jobResult.status})`);
             setTimeout(poll, 2000);
           }
-        } catch {
+        } catch (err) {
           setGenerating(false);
           setGeneratingStatus("");
-          toast("error", "Generation failed", "Unable to check status.");
+          const msg = err instanceof Error ? err.message : String(err);
+          toast("error", "Generation failed", msg || "Unable to check status.");
         }
       };
       setTimeout(poll, 1500);
-    } catch {
+    } catch (err) {
       setGenerating(false);
       setGeneratingStatus("");
-      toast("error", "Generation failed", "Please try again.");
+      const msg = err instanceof Error ? err.message : String(err);
+      toast("error", "Generation failed", msg || "Please try again.");
     }
   };
 

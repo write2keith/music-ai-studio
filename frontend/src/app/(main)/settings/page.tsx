@@ -85,8 +85,9 @@ export default function SettingsPage() {
       } else {
         setFeedback({ type: "error", text: data.error || "Failed to save" });
       }
-    } catch {
-      setFeedback({ type: "error", text: "Network error" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFeedback({ type: "error", text: msg || "Network error" });
     }
     setSaving(false);
   }

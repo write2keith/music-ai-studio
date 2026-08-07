@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/components/ui/toast";
 
 interface Plan {
   id: string;
@@ -19,6 +20,7 @@ interface Plan {
 
 export function CreditWidget() {
   const { user, isAuthenticated, refresh } = useAuth();
+  const { toast: addToast } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [stripeAvailable, setStripeAvailable] = useState(false);
@@ -33,7 +35,10 @@ export function CreditWidget() {
         setPlans(data.plans);
         setStripeAvailable(data.stripe_available);
       }
-    } catch {}
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast("error", "Failed to load plans", msg || "Please try again.");
+    }
   }, []);
 
   useEffect(() => {

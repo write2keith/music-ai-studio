@@ -150,7 +150,7 @@ export default function WaveformEditor() {
           samples = reduced;
           waveformDataRef.current = reduced;
           audioCtx.close();
-        } catch {
+        } catch (_err) {
           return;
         }
       }

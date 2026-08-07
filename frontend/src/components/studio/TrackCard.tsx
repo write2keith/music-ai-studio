@@ -32,7 +32,10 @@ export function TrackCard({ track, variant = "grid" }: TrackCardProps) {
     try {
       await forkTrack(track.id);
       addToast("Track forked!", "Added to your library", "success");
-    } catch {}
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast("Fork failed", msg || "Please try again.", "error");
+    }
   };
 
   if (variant === "list") {

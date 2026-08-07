@@ -59,8 +59,9 @@ export default function SeparatePage() {
             setStatus(`Separating stems... (${jobResult.status})`);
             setTimeout(poll, 2000);
           }
-        } catch {
-          setError("Connection lost during separation. The job may still be running on the server.");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(msg || "Connection lost during separation. The job may still be running on the server.");
           setLoading(false);
           setStatus("");
         }
