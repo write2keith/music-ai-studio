@@ -520,7 +520,7 @@ export default function ToolsPage() {
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
           Analyze a separated instrument stem (guitar, piano, bass) to detect MIDI notes with timing.
-          Works best with monophonic stems. Upload WAV.
+          Works best with monophonic stems. Supports WAV, MP3, M4A, FLAC, OGG.
         </p>
       </div>
 
@@ -529,7 +529,7 @@ export default function ToolsPage() {
           onDrop={(e) => {
             e.preventDefault();
             const f = e.dataTransfer.files[0];
-            if (f?.type.startsWith("audio/") || f?.name.endsWith(".wav")) {
+            if (f?.type.startsWith("audio/") || /\.(wav|mp3|m4a|flac|ogg)$/i.test(f.name)) {
               setTranscribeFile(f);
               setTranscribeResult(null);
               setTranscribeError("");
@@ -547,7 +547,7 @@ export default function ToolsPage() {
           <input
             id="transcribe-file-input"
             type="file"
-            accept="audio/wav,.wav,audio/*"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

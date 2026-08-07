@@ -293,23 +293,41 @@ async def transcribe_notes(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     content = await file.read()
-    tmp_path = output_dir / f"transcribe_{uuid.uuid4().hex[:12]}.wav"
+    ext = Path(file.filename).suffix if file.filename else ".wav"
+    tmp_path = output_dir / f"transcribe_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(content)
 
+    wav_path = tmp_path
     try:
         import scipy.io.wavfile
-        scipy.io.wavfile.read(str(tmp_path))
+        scipy.io.wavfile.read(str(wav_path))
     except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Unable to read audio file. Only WAV format is supported.")
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp_path))
+            wav_path = output_dir / f"transcribe_{uuid.uuid4().hex[:12]}.wav"
+            audio.export(str(wav_path), format="wav")
+            tmp_path.unlink(missing_ok=True)
+            scipy.io.wavfile.read(str(wav_path))
+        except Exception as e:
+            for p in [tmp_path, wav_path]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Unable to read audio file. Supported formats: WAV, MP3, M4A, FLAC, OGG. Ensure ffmpeg is installed for non-WAV formats.",
+            )
 
     try:
-        result = _detect_notes_fft(str(tmp_path))
+        result = _detect_notes_fft(str(wav_path))
     except Exception as e:
-        tmp_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
+        if wav_path != tmp_path:
+            tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)[:200]}")
 
-    tmp_path.unlink(missing_ok=True)
+    wav_path.unlink(missing_ok=True)
+    if wav_path != tmp_path:
+        tmp_path.unlink(missing_ok=True)
 
     return TranscribeResponse(
         ok=True,
