@@ -215,8 +215,8 @@ def _detect_notes_fft(audio_path: str) -> dict:
 
     duration = len(data) / sr
 
-    window_sec = 0.12
-    hop_sec = 0.04
+    window_sec = 0.08
+    hop_sec = 0.03
     window_samples = int(sr * window_sec)
     hop_samples = int(sr * hop_sec)
     if window_samples > len(data):
@@ -232,18 +232,20 @@ def _detect_notes_fft(audio_path: str) -> dict:
     rms_arr = np.array(rms_values)
     nonzero = rms_arr[rms_arr > 1e-6]
     noise_floor = float(np.median(nonzero)) if len(nonzero) > 0 else 1e-6
-    threshold = max(0.03, noise_floor * 2.5)
+    threshold = max(0.015, noise_floor * 1.5)
 
     fft_len = window_samples
     freqs = np.fft.rfftfreq(fft_len, 1.0 / sr)
-    freq_mask = (freqs >= 40) & (freqs <= 3500)
+    freq_mask = (freqs >= 30) & (freqs <= 4000)
     valid_freqs = freqs[freq_mask]
     valid_indices = np.where(freq_mask)[0]
 
-    raw_events = []
+    raw_midi = []
+    raw_rms = []
     for i in range(num_windows):
         if rms_values[i] < threshold:
-            raw_events.append(None)
+            raw_midi.append(-1)
+            raw_rms.append(0.0)
             continue
 
         start = i * hop_samples
@@ -255,8 +257,8 @@ def _detect_notes_fft(audio_path: str) -> dict:
         peak_rel = int(np.argmax(fft_valid))
         peak_idx = valid_indices[peak_rel]
 
-        y0 = fft[peak_idx]
         if 1 <= peak_rel < len(fft_valid) - 1:
+            y0 = fft[peak_idx]
             y_left = fft_valid[peak_rel - 1]
             y_right = fft_valid[peak_rel + 1]
             delta = 0.5 * (y_left - y_right) / (y_left - 2 * y0 + y_right + 1e-10)
@@ -265,79 +267,53 @@ def _detect_notes_fft(audio_path: str) -> dict:
         else:
             freq = valid_freqs[peak_rel]
 
-        midi, name = _hz_to_note(freq)
-        vel = min(1.0, round(rms_values[i] / max(noise_floor, 1e-6) * 0.4, 2))
-        raw_events.append({
-            "time": (start + window_samples / 2) / sr,
-            "midi": midi,
-            "name": name,
-            "velocity": vel,
-            "rms": rms_values[i],
-        })
+        midi, _ = _hz_to_note(freq)
+        raw_midi.append(midi)
+        raw_rms.append(rms_values[i])
 
-    stability = 3
+    stability = 2
     notes = []
-    buffer = []
-
-    for evt in raw_events:
-        if evt is None:
-            if buffer:
-                midis = [e["midi"] for e in buffer]
-                midi = round(np.mean(midis))
-                name = _hz_to_note(440.0 * 2 ** ((midi - 69) / 12))[1]
-                vel = round(float(np.mean([e["velocity"] for e in buffer])), 2)
-                notes.append({
-                    "start_time": round(buffer[0]["time"], 3),
-                    "end_time": round(buffer[-1]["time"], 3),
-                    "pitch": midi,
-                    "note_name": name,
-                    "velocity": vel,
-                })
-                buffer = []
+    i = 0
+    while i < len(raw_midi):
+        if raw_midi[i] < 0:
+            i += 1
             continue
 
-        if not buffer:
-            buffer = [evt]
-            continue
+        segment_midis = [raw_midi[i]]
+        segment_rms = [raw_rms[i]]
+        j = i + 1
+        while j < len(raw_midi):
+            if raw_midi[j] < 0:
+                break
+            mode_midi = max(set(segment_midis), key=segment_midis.count)
+            if abs(raw_midi[j] - mode_midi) > 1:
+                break
+            segment_midis.append(raw_midi[j])
+            segment_rms.append(raw_rms[j])
+            j += 1
 
-        midis = [e["midi"] for e in buffer]
-        midi_mode = max(set(midis), key=midis.count)
-        if evt["midi"] == midi_mode or abs(evt["midi"] - midi_mode) <= 1:
-            buffer.append(evt)
-        else:
-            if len(buffer) >= stability:
-                midis = [e["midi"] for e in buffer]
-                midi = round(np.mean(midis))
-                name = _hz_to_note(440.0 * 2 ** ((midi - 69) / 12))[1]
-                vel = round(float(np.mean([e["velocity"] for e in buffer])), 2)
-                notes.append({
-                    "start_time": round(buffer[0]["time"], 3),
-                    "end_time": round(buffer[-1]["time"], 3),
-                    "pitch": midi,
-                    "note_name": name,
-                    "velocity": vel,
-                })
-            buffer = [evt]
+        if len(segment_midis) >= stability:
+            midi = round(np.mean(segment_midis))
+            name = _hz_to_note(440.0 * 2 ** ((midi - 69) / 12))[1]
+            vel = min(1.0, round(float(np.mean(segment_rms)) / max(noise_floor, 1e-6) * 0.3, 2))
+            start_t = i * hop_sec + window_sec / 2
+            end_t = (j - 1) * hop_sec + window_sec / 2
+            notes.append({
+                "start_time": round(start_t, 3),
+                "end_time": round(end_t, 3),
+                "pitch": midi,
+                "note_name": name,
+                "velocity": vel,
+            })
 
-    if buffer and len(buffer) >= stability:
-        midis = [e["midi"] for e in buffer]
-        midi = round(np.mean(midis))
-        name = _hz_to_note(440.0 * 2 ** ((midi - 69) / 12))[1]
-        vel = round(float(np.mean([e["velocity"] for e in buffer])), 2)
-        notes.append({
-            "start_time": round(buffer[0]["time"], 3),
-            "end_time": round(buffer[-1]["time"], 3),
-            "pitch": midi,
-            "note_name": name,
-            "velocity": vel,
-        })
+        i = j
 
-    min_duration = 0.08
+    min_duration = 0.04
     notes = [n for n in notes if n["end_time"] - n["start_time"] >= min_duration]
 
     merged = []
     for n in notes:
-        if merged and merged[-1]["pitch"] == n["pitch"] and n["start_time"] - merged[-1]["end_time"] < 0.12:
+        if merged and merged[-1]["pitch"] == n["pitch"] and n["start_time"] - merged[-1]["end_time"] < 0.10:
             merged[-1]["end_time"] = n["end_time"]
             merged[-1]["velocity"] = round(max(merged[-1]["velocity"], n["velocity"]), 2)
         else:
