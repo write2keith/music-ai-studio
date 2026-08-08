@@ -59,7 +59,8 @@ export default function EditorPage() {
   const recordingTrackRef = useRef<string>("");
   const playbackCtxRef = useRef<AudioContext | null>(null);
 
-  function getPlaybackCtx(): AudioContext {
+  function getPlaybackCtx(): AudioContext | null {
+    if (typeof window === "undefined") return null;
     if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
       playbackCtxRef.current = new AudioContext();
     }
@@ -132,7 +133,7 @@ export default function EditorPage() {
 
   function playAll() {
     const ctx = getPlaybackCtx();
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx?.state === "suspended") ctx.resume();
     setIsPlaying(true);
     startRef.current = Date.now() - playheadRef.current * 1000;
     animRef.current = requestAnimationFrame(animatePlayhead);
@@ -191,7 +192,7 @@ export default function EditorPage() {
       recorder.start();
 
       const ctx = getPlaybackCtx();
-      if (ctx.state === "suspended") ctx.resume();
+      if (ctx?.state === "suspended") ctx.resume();
 
       setIsRecording(true);
       setIsPlaying(true);
