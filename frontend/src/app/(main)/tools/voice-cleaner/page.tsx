@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Loader2, AlertCircle, Mic, FileAudio,
@@ -34,17 +34,44 @@ export default function VoiceCleanerPage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<VoiceCleanResult | null>(null);
+  const previewRef = useRef<HTMLAudioElement | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const f = e.dataTransfer.files[0];
     if (f?.type.startsWith("audio/") || /\.(wav|mp3|ogg|flac|m4a|aac)$/i.test(f.name)) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
       setFile(f);
       setResult(null);
       setError("");
+      setPreviewUrl(URL.createObjectURL(f));
     }
-  }, []);
+  }, [previewUrl]);
+
+  const handleFileInput = (f: File) => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(f);
+    setResult(null);
+    setError("");
+    setPreviewUrl(URL.createObjectURL(f));
+  };
+
+  function togglePreview(e: React.MouseEvent) {
+    e.stopPropagation();
+    const a = previewRef.current;
+    if (!a) return;
+    if (a.paused) { a.play(); setIsPreviewing(true); }
+    else { a.pause(); setIsPreviewing(false); }
+  }
 
   async function handleClean() {
     if (!file) return;
@@ -97,12 +124,18 @@ export default function VoiceCleanerPage() {
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) { setFile(f); setResult(null); setError(""); }
+              if (f) handleFileInput(f);
             }}
           />
           {file ? (
-            <div className="flex items-center justify-center gap-2 text-daw-green">
-              <FileAudio className="w-5 h-5" />
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={togglePreview}
+                className="p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+              >
+                {isPreviewing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+              </button>
+              <FileAudio className="w-5 h-5 text-daw-green" />
               <span className="text-sm font-medium">{file.name}</span>
               <span className="text-xs text-daw-text-dim">({formatSize(file.size)})</span>
             </div>
@@ -113,6 +146,14 @@ export default function VoiceCleanerPage() {
             </div>
           )}
         </div>
+
+        <audio
+          ref={previewRef}
+          src={previewUrl}
+          onEnded={() => setIsPreviewing(false)}
+          onPause={() => setIsPreviewing(false)}
+          className="hidden"
+        />
 
         {/* Noise Reduction */}
         <div>
