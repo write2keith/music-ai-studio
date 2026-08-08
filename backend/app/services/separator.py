@@ -154,6 +154,8 @@ def separate(audio_path: str, model_name: str = "htdemucs") -> dict:
 
     logger.info(f"Separating stems: {audio_path} (model: {model_name})")
 
+    from demucs import separate as demucs_separate
+
     output_base = get_stems_dir()
 
     if model_name == "htdemucs_ft":
