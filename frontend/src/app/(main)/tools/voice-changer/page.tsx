@@ -169,15 +169,32 @@ export default function VoiceChangerPage() {
             <label className="text-[10px] uppercase tracking-wider text-daw-text-dim">Pitch Shift</label>
             <span className="text-xs text-daw-accent font-mono">{semitones > 0 ? "+" : ""}{semitones} semitones</span>
           </div>
-          <input
-            type="range"
-            min={-12}
-            max={12}
-            step={1}
-            value={semitones}
-            onChange={(e) => setSemitones(Number(e.target.value))}
-            className="w-full h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-daw-accent"
-          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSemitones(Math.max(-12, semitones - 1))}
+              className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
+            >-</button>
+            <input
+              type="range"
+              min={-12}
+              max={12}
+              value={semitones}
+              onChange={(e) => setSemitones(Number(e.target.value))}
+              className="flex-1 h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-daw-accent"
+            />
+            <button
+              onClick={() => setSemitones(Math.min(12, semitones + 1))}
+              className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
+            >+</button>
+            <input
+              type="number"
+              min={-12}
+              max={12}
+              value={semitones}
+              onChange={(e) => setSemitones(Math.max(-12, Math.min(12, Number(e.target.value) || 0)))}
+              className="w-12 bg-daw-surface-1 text-daw-text text-xs text-center rounded px-1 py-0.5 outline-none border border-daw-border [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
           <div className="flex justify-between text-[9px] text-daw-text-dim mt-0.5">
             <span>-12 (deep)</span>
             <span>0 (original)</span>
@@ -191,15 +208,32 @@ export default function VoiceChangerPage() {
             <label className="text-[10px] uppercase tracking-wider text-daw-text-dim">Formant Shift</label>
             <span className="text-xs text-cyan-400 font-mono">{formantShift > 0 ? "+" : ""}{formantShift}</span>
           </div>
-          <input
-            type="range"
-            min={-6}
-            max={6}
-            step={1}
-            value={formantShift}
-            onChange={(e) => setFormantShift(Number(e.target.value))}
-            className="w-full h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-cyan-400"
-          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setFormantShift(Math.max(-6, formantShift - 1))}
+              className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
+            >-</button>
+            <input
+              type="range"
+              min={-6}
+              max={6}
+              value={formantShift}
+              onChange={(e) => setFormantShift(Number(e.target.value))}
+              className="flex-1 h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-cyan-400"
+            />
+            <button
+              onClick={() => setFormantShift(Math.min(6, formantShift + 1))}
+              className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
+            >+</button>
+            <input
+              type="number"
+              min={-6}
+              max={6}
+              value={formantShift}
+              onChange={(e) => setFormantShift(Math.max(-6, Math.min(6, Number(e.target.value) || 0)))}
+              className="w-12 bg-daw-surface-1 text-daw-text text-xs text-center rounded px-1 py-0.5 outline-none border border-daw-border [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
           <div className="flex justify-between text-[9px] text-daw-text-dim mt-0.5">
             <span>-6 (smaller)</span>
             <span>0 (original)</span>
