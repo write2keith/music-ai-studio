@@ -52,12 +52,15 @@ export default function EditorPage() {
   const [playheadTime, setPlayheadTime] = useState(0);
   const [bpm, setBpm] = useState(120);
   const playheadRef = useRef<number>(0);
+  const seekVersionRef = useRef<number>(0);
+  const [seekVersion, setSeekVersion] = useState(0);
   const animRef = useRef<number>(0);
   const startRef = useRef<number>(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingTrackRef = useRef<string>("");
   const playbackCtxRef = useRef<AudioContext | null>(null);
+  const wasPlayingRef = useRef(false);
 
   function getPlaybackCtx(): AudioContext | null {
     if (typeof window === "undefined") return null;
@@ -157,6 +160,23 @@ export default function EditorPage() {
     setIsPlaying(false);
     cancelAnimationFrame(animRef.current);
     stopMetronome();
+  }
+
+  function seekTo(time: number) {
+    const clamped = Math.max(0, Math.min(time, maxDuration));
+    wasPlayingRef.current = isPlaying;
+
+    // Stop: increment seek version so TrackRows kill their sources
+    seekVersionRef.current += 1;
+    setSeekVersion(seekVersionRef.current);
+    playheadRef.current = clamped;
+    setPlayheadTime(clamped);
+
+    if (wasPlayingRef.current) {
+      // Restart animation from new position
+      startRef.current = Date.now() - clamped * 1000;
+      animRef.current = requestAnimationFrame(animatePlayhead);
+    }
   }
 
   async function startRecording() {
@@ -401,6 +421,38 @@ export default function EditorPage() {
         ))}
       </div>
 
+      {/* Scrubber Slider */}
+      <div className="px-1 py-0.5 bg-daw-surface-2 border-b border-daw-border">
+        <div className="relative">
+          <input
+            type="range"
+            min={0}
+            max={maxDuration}
+            step={0.05}
+            value={playheadTime}
+            onChange={(e) => {
+              const t = parseFloat(e.target.value);
+              seekTo(t);
+            }}
+            className="w-full h-3 appearance-none bg-transparent cursor-pointer
+              [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-daw-surface-3
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-daw-accent [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-daw-accent/40 [&::-webkit-slider-thumb]:mt-[-3px] [&::-webkit-slider-thumb]:cursor-grab [&::-webkit-slider-thumb]:active:cursor-grabbing
+              [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-daw-surface-3
+              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-daw-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-daw-accent/40 [&::-moz-range-thumb]:cursor-grab [&::-moz-range-thumb]:active:cursor-grabbing"
+          />
+          {/* Playhead position label */}
+          <div
+            className="absolute -bottom-1 text-[9px] text-daw-accent font-mono pointer-events-none"
+            style={{
+              left: `max(0%, min(95%, ${(playheadTime / maxDuration) * 100}%))`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            {playheadTime.toFixed(1)}s
+          </div>
+        </div>
+      </div>
+
       {/* Tracks */}
       <motion.div className="space-y-1" layout>
         {tracks.map((track) => (
@@ -410,6 +462,7 @@ export default function EditorPage() {
                 track={track}
                 isPlaying={isPlaying}
                 playheadTime={playheadTime}
+                seekVersion={seekVersion}
                 ctx={getPlaybackCtx()}
                 onToggleMute={() =>
                   setTracks((prev) =>

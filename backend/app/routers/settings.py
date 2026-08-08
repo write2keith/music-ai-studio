@@ -144,7 +144,13 @@ SEPARATION_PROVIDERS = [
 
 @router.get("/separation")
 async def get_separation_settings():
-    import torch
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+    except ImportError:
+        torch = None
+        gpu_available = False
+
     local_available = True
     try:
         from demucs import pretrained
@@ -158,7 +164,7 @@ async def get_separation_settings():
         "local_available": local_available,
         "cloud_available": bool(settings.HF_TOKEN or _active_sep_token),
         "hf_token_configured": bool(settings.HF_TOKEN or _active_sep_token),
-        "gpu_available": torch.cuda.is_available() if local_available else False,
+        "gpu_available": gpu_available,
         "demucs_available": local_available,
     }
 

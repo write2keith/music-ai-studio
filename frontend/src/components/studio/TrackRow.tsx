@@ -30,6 +30,7 @@ interface TrackRowProps {
   onOffsetChange: (offset: number) => void;
   isPlaying: boolean;
   playheadTime: number;
+  seekVersion: number;
   ctx: AudioContext | null;
 }
 
@@ -54,6 +55,7 @@ export function TrackRow({
   onOffsetChange,
   isPlaying,
   playheadTime,
+  seekVersion,
   ctx,
 }: TrackRowProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -94,6 +96,11 @@ export function TrackRow({
       stopSource();
     }
   }, [isPlaying, playheadTime, track.muted, track.startOffset, track.duration, ctx]);
+
+  // On seek: stop sources so playheadTime effect can restart at correct offset
+  useEffect(() => {
+    stopSource();
+  }, [seekVersion]);
 
   useEffect(() => {
     if (gainRef.current) {
