@@ -125,9 +125,10 @@ def _generate_local(prompt: str, duration: int = 10) -> tuple[str, float]:
     audio_frames_per_second = model.config.audio_encoder.frame_rate
     model.generation_config.max_length = int(duration * audio_frames_per_second)
     model.generation_config.do_sample = True
-    model.generation_config.temperature = 1.0
+    model.generation_config.temperature = 0.8
     model.generation_config.top_k = 250
     model.generation_config.top_p = 0.0
+    model.generation_config.guidance_scale = 3.0
 
     with torch.no_grad():
         audio_values = model.generate(**inputs)
@@ -135,9 +136,16 @@ def _generate_local(prompt: str, duration: int = 10) -> tuple[str, float]:
     audio_data = audio_values[0, 0].cpu().numpy()
     sample_rate = model.config.audio_encoder.sampling_rate
 
+    # Normalize to [-1, 1] range and convert to int16 for clean WAV
+    peak = np.max(np.abs(audio_data))
+    if peak > 0:
+        audio_data = audio_data / peak * 0.95
+    audio_data = np.clip(audio_data, -1.0, 1.0)
+    audio_int16 = (audio_data * 32767).astype(np.int16)
+
     filename = f"{_safe_filename(prompt)}_{uuid.uuid4().hex[:6]}.wav"
     filepath = get_output_dir() / filename
-    scipy.io.wavfile.write(str(filepath), sample_rate, audio_data)
+    scipy.io.wavfile.write(str(filepath), sample_rate, audio_int16)
 
     actual_duration = len(audio_data) / sample_rate
     logger.info(f"Generated {actual_duration:.1f}s of audio -> {filepath}")
