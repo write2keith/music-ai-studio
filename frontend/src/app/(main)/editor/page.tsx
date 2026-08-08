@@ -181,10 +181,14 @@ export default function EditorPage() {
 
       recorder.start();
 
+      const ctx = getPlaybackCtx();
+      if (ctx.state === "suspended") ctx.resume();
+
       setIsRecording(true);
       setIsPlaying(true);
       startRef.current = Date.now() - playheadRef.current * 1000;
       animRef.current = requestAnimationFrame(animatePlayhead);
+      if (metronomeOn) startMetronome();
 
       setTracks((prev) =>
         prev.map((t) =>
