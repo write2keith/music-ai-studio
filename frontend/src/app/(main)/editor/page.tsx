@@ -57,6 +57,14 @@ export default function EditorPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingTrackRef = useRef<string>("");
+  const playbackCtxRef = useRef<AudioContext | null>(null);
+
+  function getPlaybackCtx(): AudioContext {
+    if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
+      playbackCtxRef.current = new AudioContext();
+    }
+    return playbackCtxRef.current;
+  }
 
   const maxDuration = Math.max(...tracks.map((t) => t.startOffset + t.duration), 10);
 
@@ -114,6 +122,8 @@ export default function EditorPage() {
   }, [maxDuration]);
 
   function playAll() {
+    const ctx = getPlaybackCtx();
+    if (ctx.state === "suspended") ctx.resume();
     setIsPlaying(true);
     startRef.current = Date.now() - playheadRef.current * 1000;
     animRef.current = requestAnimationFrame(animatePlayhead);
@@ -273,6 +283,7 @@ export default function EditorPage() {
     return () => {
       cancelAnimationFrame(animRef.current);
       stopMetronome();
+      playbackCtxRef.current?.close();
     };
   }, []);
 
@@ -381,6 +392,7 @@ export default function EditorPage() {
                 track={track}
                 isPlaying={isPlaying}
                 playheadTime={playheadTime}
+                ctx={getPlaybackCtx()}
                 onToggleMute={() =>
                   setTracks((prev) =>
                     prev.map((t) =>

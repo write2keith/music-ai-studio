@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Play, Pause, Mic, Volume2, VolumeX, Upload } from "lucide-react";
+import { Mic, Volume2, VolumeX, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface TrackData {
@@ -30,6 +30,7 @@ interface TrackRowProps {
   onOffsetChange: (offset: number) => void;
   isPlaying: boolean;
   playheadTime: number;
+  ctx: AudioContext | null;
 }
 
 const COLORS: Record<string, string> = {
@@ -53,26 +54,24 @@ export function TrackRow({
   onOffsetChange,
   isPlaying,
   playheadTime,
+  ctx,
 }: TrackRowProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const waveformRef = useRef<Float32Array | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const bufferRef = useRef<AudioBuffer | null>(null);
+  const startedRef = useRef(false);
   const color = COLORS[track.color] || COLORS.violet;
 
   useEffect(() => {
-    if (!track.audioBlob) return;
-    const url = URL.createObjectURL(track.audioBlob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-
-    const ctx = new AudioContext();
-    audioCtxRef.current = ctx;
+    if (!track.audioBlob || !ctx) return;
 
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const buffer = await ctx.decodeAudioData(reader.result as ArrayBuffer);
+        bufferRef.current = buffer;
         const data = buffer.getChannelData(0);
         waveformRef.current = data;
         drawWaveform(data);
@@ -80,43 +79,81 @@ export function TrackRow({
     };
     reader.readAsArrayBuffer(track.audioBlob);
 
-    return () => {
-      URL.revokeObjectURL(url);
-      ctx.close();
-    };
-  }, [track.audioBlob]);
+    return () => { stopSource(); };
+  }, [track.audioBlob, ctx]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    audio.volume = track.muted ? 0 : track.volume;
+    if (!ctx) return;
 
     const localTime = playheadTime - track.startOffset;
     const shouldPlay = isPlaying && !track.muted && localTime >= 0 && localTime < (track.duration || 1);
 
-    if (shouldPlay) {
-      audio.currentTime = localTime;
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
+    if (shouldPlay && !startedRef.current && bufferRef.current) {
+      startSource(localTime);
+    } else if (!shouldPlay && startedRef.current) {
+      stopSource();
     }
-  }, [isPlaying, playheadTime, track.muted, track.volume, track.duration, track.startOffset]);
+  }, [isPlaying, playheadTime, track.muted, track.startOffset, track.duration, ctx]);
+
+  useEffect(() => {
+    if (gainRef.current) {
+      gainRef.current.gain.value = track.muted ? 0 : track.volume;
+    }
+  }, [track.muted, track.volume]);
+
+  function startSource(offset: number) {
+    if (!ctx || !bufferRef.current) return;
+    stopSource();
+
+    const source = ctx.createBufferSource();
+    source.buffer = bufferRef.current;
+
+    const gain = ctx.createGain();
+    gain.gain.value = track.muted ? 0 : track.volume;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+
+    source.start(0, offset);
+    sourceRef.current = source;
+    gainRef.current = gain;
+    startedRef.current = true;
+
+    source.onended = () => {
+      if (sourceRef.current === source) {
+        sourceRef.current = null;
+        gainRef.current = null;
+        startedRef.current = false;
+      }
+    };
+  }
+
+  function stopSource() {
+    if (sourceRef.current) {
+      try { sourceRef.current.stop(); } catch {}
+      sourceRef.current = null;
+    }
+    gainRef.current = null;
+    startedRef.current = false;
+  }
+
+  useEffect(() => {
+    return () => { stopSource(); };
+  }, []);
 
   function drawWaveform(data: Float32Array) {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const c = canvas.getContext("2d");
+    if (!c) return;
 
     const w = canvas.width;
     const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
+    c.clearRect(0, 0, w, h);
 
     const step = Math.ceil(data.length / w);
-    ctx.beginPath();
-    ctx.strokeStyle = color + "99";
-    ctx.lineWidth = 1;
+    c.beginPath();
+    c.strokeStyle = color + "99";
+    c.lineWidth = 1;
 
     for (let i = 0; i < w; i++) {
       let min = 1, max = -1;
@@ -129,10 +166,10 @@ export function TrackRow({
       }
       const y1 = ((1 - max) / 2) * h;
       const y2 = ((1 - min) / 2) * h;
-      ctx.moveTo(i, y1);
-      ctx.lineTo(i, y2);
+      c.moveTo(i, y1);
+      c.lineTo(i, y2);
     }
-    ctx.stroke();
+    c.stroke();
   }
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -167,7 +204,6 @@ export function TrackRow({
         track.muted && "opacity-50"
       )}
     >
-      {/* Track color + name */}
       <div className="flex items-center gap-2 w-36 shrink-0">
         <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
         <input
@@ -177,7 +213,6 @@ export function TrackRow({
         />
       </div>
 
-      {/* Waveform area with drop target */}
       <div
         className={cn(
           "flex-1 h-12 rounded bg-daw-surface-1 overflow-hidden relative transition-colors",
@@ -222,7 +257,6 @@ export function TrackRow({
         )}
       </div>
 
-      {/* Offset */}
       <div className="flex items-center gap-1 shrink-0">
         <input
           type="number"
@@ -236,7 +270,6 @@ export function TrackRow({
         <span className="text-[9px] text-daw-text-dim">s</span>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={onToggleArm}
