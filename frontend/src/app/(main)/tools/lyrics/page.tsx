@@ -246,23 +246,46 @@ export default function LyricsPage() {
                     <span className="text-xs text-daw-text-dim">Language: {lyricResult.language}</span>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    const lrc = lyricResult.lyrics
-                      .map((l: { start: number; text: string }) => `[${formatTimestamp(l.start)}]${l.text}`)
-                      .join("\n");
-                    const blob = new Blob([lrc], { type: "text/plain" });
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = "lyrics.txt";
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
-                >
-                  <Download className="w-3 h-3" />
-                  Save .txt
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (lyricResult.txt_path) {
+                        const a = document.createElement("a");
+                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.txt_path.split("/").pop() || "lyrics.txt")}`;
+                        a.download = "lyrics.txt";
+                        a.click();
+                      } else {
+                        const text = lyricResult.full_text || lyricResult.lyrics
+                          .map((l: { start: number; text: string }) => `[${formatTimestamp(l.start)}]${l.text}`)
+                          .join("\n");
+                        const blob = new Blob([text], { type: "text/plain" });
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = "lyrics.txt";
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    Save .txt
+                  </button>
+                  {lyricResult.lrc_path && (
+                    <button
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.lrc_path.split("/").pop() || "lyrics.lrc")}`;
+                        a.download = "lyrics.lrc";
+                        a.click();
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      Save .lrc
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
                 {lyricResult.lyrics.map((line, i: number) => (

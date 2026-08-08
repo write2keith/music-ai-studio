@@ -458,6 +458,8 @@ export interface LyricTranscribeResult {
   lyrics: LyricLine[];
   full_text: string;
   language: string;
+  txt_path: string;
+  lrc_path: string;
 }
 
 export interface TabNote {
