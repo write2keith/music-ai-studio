@@ -152,8 +152,24 @@ def _run_lyric_transcribe(params: dict) -> dict:
 
     logger.info(f"Lyric transcription: {len(lyrics)} segments, lang={detected_lang}")
 
+    lyrics_dir = Path("output/lyrics")
+    lyrics_dir.mkdir(parents=True, exist_ok=True)
+    audio_stem = Path(audio_path).stem
+    txt_path = lyrics_dir / f"{audio_stem}_lyrics.txt"
+    lrc_path = lyrics_dir / f"{audio_stem}_lyrics.lrc"
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(full_text + "\n")
+    with open(lrc_path, "w", encoding="utf-8") as f:
+        for seg in lyrics:
+            start_m = int(seg["start"] // 60)
+            start_s = seg["start"] % 60
+            f.write(f"[{start_m:02d}:{start_s:05.2f}] {seg['text']}\n")
+    logger.info(f"Lyrics saved: {txt_path}, {lrc_path}")
+
     return {
         "lyrics": lyrics,
         "full_text": full_text,
         "language": detected_lang,
+        "txt_path": str(txt_path),
+        "lrc_path": str(lrc_path),
     }

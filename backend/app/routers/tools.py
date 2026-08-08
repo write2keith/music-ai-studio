@@ -1226,6 +1226,8 @@ class LyricTranscribeResponse(BaseModel):
     full_text: str = ""
     language: str = ""
     error: str = ""
+    txt_path: str = ""
+    lrc_path: str = ""
 
 
 @router.post("/lyric-transcribe", response_model=LyricTranscribeResponse)
@@ -1272,6 +1274,8 @@ async def lyric_transcribe_status(job_id: str):
             resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
             resp.full_text = r.get("full_text", "")
             resp.language = r.get("language", "")
+            resp.txt_path = r.get("txt_path", "")
+            resp.lrc_path = r.get("lrc_path", "")
         resp.error = job.error
 
     if job.status == JobStatus.COMPLETED and job.result:
@@ -1279,8 +1283,20 @@ async def lyric_transcribe_status(job_id: str):
         resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
         resp.full_text = r.get("full_text", "")
         resp.language = r.get("language", "")
+        resp.txt_path = r.get("txt_path", "")
+        resp.lrc_path = r.get("lrc_path", "")
 
     return resp
+
+
+@router.get("/lyrics/download/{filename:path}")
+async def download_lyrics(filename: str):
+    from fastapi.responses import FileResponse
+    lyrics_dir = Path("output/lyrics")
+    file_path = lyrics_dir / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(file_path), media_type="text/plain", filename=filename)
 
 
 # ── Guitar Tab Generator ──────────────────────────────────────
