@@ -28,11 +28,18 @@ export default function LyricsPage() {
   const lyricPollId = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pollLyrics = useCallback((jobId: string) => {
+    let attempts = 0;
     const t = setInterval(async () => {
+      attempts++;
       try {
         const data = await api.tools.lyricTranscribeStatus(jobId);
         if (data.status === "completed") {
           setLyricResult(data);
+          setLyricPolling(false);
+          setLyricTranscribing(false);
+          clearInterval(t);
+        } else if (data.status === "failed" || attempts >= 300) {
+          setLyricError(data.status === "failed" ? "Transcription failed" : "Transcription timed out");
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);

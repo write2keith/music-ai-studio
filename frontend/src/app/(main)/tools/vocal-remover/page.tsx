@@ -39,11 +39,17 @@ export default function VocalRemoverPage() {
   }
 
   async function pollRemover(jobId: string) {
+    let attempts = 0;
     const t = setInterval(async () => {
+      attempts++;
       try {
         const s = await api.tools.vocalRemoveStatus(jobId);
         if (s.instrumental_ready) {
           setRemoverStatus("ready");
+          setRemoving(false);
+          clearInterval(t);
+        } else if (attempts >= 300) {
+          setRemoverStatus("failed");
           setRemoving(false);
           clearInterval(t);
         }

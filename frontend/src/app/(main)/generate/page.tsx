@@ -44,7 +44,11 @@ export default function SeparatePage() {
       const job = await api.separate(file, model);
       setStatus("Separating stems...");
 
+      const MAX_POLLS = 300;
+      let attempts = 0;
+
       const poll = async () => {
+        attempts++;
         try {
           const jobResult = await api.getSeparationStatus(job.job_id);
           if (jobResult.status === "completed" && jobResult.result) {
@@ -55,8 +59,13 @@ export default function SeparatePage() {
             setError(jobResult.error || "Separation failed");
             setLoading(false);
             setStatus("");
+          } else if (attempts >= MAX_POLLS) {
+            setError("Separation timed out. The job may still be running on the server.");
+            setLoading(false);
+            setStatus("");
           } else {
-            setStatus(`Separating stems... (${jobResult.status})`);
+            const elapsed = Math.round((attempts * 2) / 60);
+            setStatus(`Separating stems... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
             setTimeout(poll, 2000);
           }
         } catch (err) {

@@ -88,7 +88,11 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
 
       setGeneratingStatus("Generating audio...");
 
+      const MAX_POLLS = 300; // 10 minutes at 2s intervals
+      let attempts = 0;
+
       const poll = async () => {
+        attempts++;
         try {
           const jobResult = await api.getGenerationStatus(job.job_id);
           if (jobResult.status === "completed" && jobResult.result) {
@@ -102,8 +106,13 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
             setGenerating(false);
             setGeneratingStatus("");
             toast("error", "Generation failed", jobResult.error || "Unknown error");
+          } else if (attempts >= MAX_POLLS) {
+            setGenerating(false);
+            setGeneratingStatus("");
+            toast("error", "Generation timed out", "Generation is taking too long. The job may still be running on the server.");
           } else {
-            setGeneratingStatus(`Generating audio... (${jobResult.status})`);
+            const elapsed = Math.round((attempts * 2) / 60);
+            setGeneratingStatus(`Generating audio... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
             setTimeout(poll, 2000);
           }
         } catch (err) {

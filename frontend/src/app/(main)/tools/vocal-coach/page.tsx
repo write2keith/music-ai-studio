@@ -171,7 +171,9 @@ export default function VocalCoachPage() {
       setVocalPrepJobId(job.job_id);
       setVocalPrepStatus("Separating vocals...");
 
+      let polls = 0;
       const poll = setInterval(async () => {
+        polls++;
         try {
           const status = await api.tools.vocalPrepStatus(job.job_id);
           if (status.status === "completed") {
@@ -179,10 +181,10 @@ export default function VocalCoachPage() {
             setVocalPrepStatus("ready");
             setVocalPrepPitch(status.pitch_data || []);
             setVocalPrepUrl(status.vocals_url || "");
-          } else if (status.status === "failed") {
+          } else if (status.status === "failed" || polls >= 300) {
             clearInterval(poll);
             setVocalPrepStatus("failed");
-            setVocalError("Vocal separation failed");
+            setVocalError(status.status === "failed" ? "Vocal separation failed" : "Vocal prep timed out");
           }
         } catch {
           clearInterval(poll);
