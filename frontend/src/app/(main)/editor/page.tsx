@@ -110,11 +110,20 @@ export default function EditorPage() {
     metronomeCtxRef.current = null;
   }
 
+  const playheadFrameRef = useRef<number>(0);
+
   const animatePlayhead = useCallback(() => {
     const elapsed = (Date.now() - startRef.current) / 1000;
     playheadRef.current = elapsed;
-    setPlayheadTime(elapsed);
+
+    // Throttle React state updates to ~15fps to avoid audio thread contention
+    playheadFrameRef.current++;
+    if (playheadFrameRef.current % 4 === 0) {
+      setPlayheadTime(elapsed);
+    }
+
     if (elapsed >= maxDuration) {
+      setPlayheadTime(elapsed);
       stopAll();
       return;
     }
