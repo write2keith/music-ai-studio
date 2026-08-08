@@ -10,6 +10,9 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 1000;
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -19,8 +22,37 @@ class ApiError extends Error {
   }
 }
 
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof TypeError && err.message === "Failed to fetch") return true;
+  const msg = String(err);
+  return (
+    msg.includes("ECONNRESET") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("socket hang up") ||
+    msg.includes("UND_ERR_SOCKET") ||
+    msg.includes("fetch failed")
+  );
+}
+
+async function fetchWithRetry(input: RequestInfo, init?: RequestInit): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableError(err) || attempt === MAX_RETRIES - 1) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
     headers: {
@@ -38,7 +70,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function upload<T>(path: string, formData: FormData): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     method: "POST",
     body: formData,
     credentials: "include",
