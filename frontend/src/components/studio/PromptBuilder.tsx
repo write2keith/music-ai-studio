@@ -115,11 +115,14 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
             setGeneratingStatus(`Generating audio... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
             setTimeout(poll, 2000);
           }
-        } catch (err) {
-          setGenerating(false);
-          setGeneratingStatus("");
-          const msg = err instanceof Error ? err.message : String(err);
-          toast("error", "Generation failed", msg || "Unable to check status.");
+        } catch {
+          if (attempts >= MAX_POLLS) {
+            setGenerating(false);
+            setGeneratingStatus("");
+            toast("error", "Generation timed out", "Unable to check status. The job may still be running on the server.");
+          } else {
+            setTimeout(poll, 2000);
+          }
         }
       };
       setTimeout(poll, 1500);

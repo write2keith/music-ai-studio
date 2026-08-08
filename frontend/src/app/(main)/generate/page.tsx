@@ -68,11 +68,14 @@ export default function SeparatePage() {
             setStatus(`Separating stems... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
             setTimeout(poll, 2000);
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setError(msg || "Connection lost during separation. The job may still be running on the server.");
-          setLoading(false);
-          setStatus("");
+        } catch {
+          if (attempts >= MAX_POLLS) {
+            setError("Separation timed out. The job may still be running on the server.");
+            setLoading(false);
+            setStatus("");
+          } else {
+            setTimeout(poll, 2000);
+          }
         }
       };
       setTimeout(poll, 1000);

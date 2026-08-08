@@ -54,9 +54,11 @@ export default function VocalRemoverPage() {
           clearInterval(t);
         }
       } catch {
-        setRemoverStatus("failed");
-        setRemoving(false);
-        clearInterval(t);
+        if (attempts >= 300) {
+          setRemoverStatus("failed");
+          setRemoving(false);
+          clearInterval(t);
+        }
       }
     }, 2000);
     removerPollId.current = t;

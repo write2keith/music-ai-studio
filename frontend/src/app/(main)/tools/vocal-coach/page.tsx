@@ -181,15 +181,21 @@ export default function VocalCoachPage() {
             setVocalPrepStatus("ready");
             setVocalPrepPitch(status.pitch_data || []);
             setVocalPrepUrl(status.vocals_url || "");
-          } else if (status.status === "failed" || polls >= 300) {
+          } else if (status.status === "failed") {
             clearInterval(poll);
             setVocalPrepStatus("failed");
-            setVocalError(status.status === "failed" ? "Vocal separation failed" : "Vocal prep timed out");
+            setVocalError("Vocal separation failed");
+          } else if (polls >= 300) {
+            clearInterval(poll);
+            setVocalPrepStatus("failed");
+            setVocalError("Vocal prep timed out");
           }
         } catch {
-          clearInterval(poll);
-          setVocalPrepStatus("failed");
-          setVocalError("Separation polling error");
+          if (polls >= 300) {
+            clearInterval(poll);
+            setVocalPrepStatus("failed");
+            setVocalError("Vocal prep timed out");
+          }
         }
       }, 3000);
     } catch (err) {

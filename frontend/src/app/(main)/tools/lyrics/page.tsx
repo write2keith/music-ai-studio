@@ -64,17 +64,25 @@ export default function LyricsPage() {
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);
-        } else if (data.status === "failed" || attempts >= 300) {
-          setLyricError(data.status === "failed" ? "Transcription failed" : "Transcription timed out");
+        } else if (data.status === "failed") {
+          setLyricError("Transcription failed");
+          setLyricPolling(false);
+          setLyricTranscribing(false);
+          clearInterval(t);
+        } else if (attempts >= 300) {
+          setLyricError("Transcription timed out after 10 minutes");
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);
         }
       } catch {
-        setLyricError("Transcription failed");
-        setLyricPolling(false);
-        setLyricTranscribing(false);
-        clearInterval(t);
+        // Retry on transient errors
+        if (attempts >= 300) {
+          setLyricError("Transcription timed out after 10 minutes");
+          setLyricPolling(false);
+          setLyricTranscribing(false);
+          clearInterval(t);
+        }
       }
     }, 2000);
     lyricPollId.current = t;
