@@ -130,7 +130,24 @@ def _separate_cloud(audio_path: str, model_name: str = "htdemucs") -> dict:
         "source": audio_path,
         "stems": stems,
         "stems_dir": str(stems_dir),
+        "mp3_stems": _make_mp3s(stems),
     }
+
+
+def _make_mp3s(stems: dict) -> dict:
+    mp3_stems = {}
+    try:
+        from pydub import AudioSegment
+        for name, wav_path in stems.items():
+            mp3_path = Path(wav_path).with_suffix(".mp3")
+            if not mp3_path.exists():
+                AudioSegment.from_wav(wav_path).export(str(mp3_path), format="mp3", bitrate="192k")
+            mp3_stems[name] = str(mp3_path)
+    except ImportError:
+        logger.warning("pydub not available, skipping MP3 conversion")
+    except Exception as e:
+        logger.warning(f"MP3 conversion failed: {e}")
+    return mp3_stems
 
 
 def separate(audio_path: str, model_name: str = "htdemucs") -> dict:
@@ -185,6 +202,7 @@ def separate(audio_path: str, model_name: str = "htdemucs") -> dict:
         "source": audio_path,
         "stems": stems,
         "stems_dir": str(stems_dir),
+        "mp3_stems": _make_mp3s(stems),
     }
 
 

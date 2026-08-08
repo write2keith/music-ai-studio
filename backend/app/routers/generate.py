@@ -162,4 +162,15 @@ async def get_separation_status(job_id: str):
             )
         response.result = {"model": job.result["model"], "stems": stem_urls}
 
+        mp3_stems = job.result.get("mp3_stems", {})
+        if mp3_stems:
+            mp3_urls = {}
+            for name, path in mp3_stems.items():
+                stem_name = Path(path).name
+                mp3_urls[name] = (
+                    f"/api/audio/stems/{job.result['model']}/"
+                    f"{Path(job.result['source']).stem}/{stem_name}"
+                )
+            response.result["mp3_stems"] = mp3_urls
+
     return response

@@ -7,6 +7,7 @@ export interface AudioResult {
 export interface StemResult {
   model: string;
   stems: Record<string, string>;
+  mp3_stems?: Record<string, string>;
 }
 
 export interface GenerationJob {

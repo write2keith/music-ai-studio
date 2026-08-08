@@ -114,7 +114,9 @@ async def serve_audio(filename: str):
 async def serve_stem(model: str, source: str, filename: str):
     filepath = Path(settings.STEMS_DIR) / model / source / filename
     if filepath.exists():
-        return FileResponse(filepath, media_type="audio/wav")
+        ext = filepath.suffix.lower()
+        mime_map = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".ogg": "audio/ogg", ".m4a": "audio/mp4"}
+        return FileResponse(filepath, media_type=mime_map.get(ext, "audio/wav"))
     raise HTTPException(status_code=404, detail="Stem file not found")
 
 

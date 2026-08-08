@@ -212,6 +212,7 @@ export default function SeparatePage() {
                   key={name}
                   name={name}
                   url={url}
+                  mp3Url={result.mp3_stems?.[name]}
                   color={stemColors[name] || "other"}
                   index={i}
                 />
@@ -226,11 +227,13 @@ export default function SeparatePage() {
 function StemPlayer({
   name,
   url,
+  mp3Url,
   color,
   index,
 }: {
   name: string;
   url: string;
+  mp3Url?: string;
   color: string;
   index: number;
 }) {
@@ -254,14 +257,24 @@ function StemPlayer({
           Click to play in your browser
         </p>
       </div>
-      <a
-        href={url}
-        download
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-daw-surface-3 hover:bg-daw-border rounded-lg text-xs text-daw-text-muted hover:text-daw-text transition-colors"
-      >
-        <Download className="w-3.5 h-3.5" />
-        Download
-      </a>
+      <div className="flex items-center gap-1">
+        <a
+          href={url}
+          download
+          className="flex items-center gap-1 px-2 py-1.5 bg-daw-surface-3 hover:bg-daw-border rounded-lg text-[10px] text-daw-text-dim hover:text-daw-text transition-colors font-medium"
+        >
+          WAV
+        </a>
+        {mp3Url && (
+          <a
+            href={mp3Url}
+            download
+            className="flex items-center gap-1 px-2 py-1.5 bg-daw-surface-3 hover:bg-daw-green/20 rounded-lg text-[10px] text-daw-green hover:text-daw-green transition-colors font-medium"
+          >
+            MP3
+          </a>
+        )}
+      </div>
     </motion.div>
   );
 }
