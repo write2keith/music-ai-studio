@@ -14,6 +14,7 @@ settings = get_settings()
 
 class YouTubeRequest(BaseModel):
     url: str
+    mp3: bool = False
 
 
 class YouTubeResponse(BaseModel):
@@ -107,6 +108,21 @@ async def download_youtube(body: YouTubeRequest):
             counter += 1
         dl_path.rename(final_path)
         filename = final_path.name
+
+        if body.mp3:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(str(final_path))
+                mp3_name = final_path.stem + ".mp3"
+                mp3_path = output_dir / mp3_name
+                audio.export(str(mp3_path), format="mp3", bitrate="192k")
+                final_path.unlink(missing_ok=True)
+                filename = mp3_path.name
+            except ImportError:
+                logger.warning("pydub not available, keeping original format")
+            except Exception as e:
+                logger.warning(f"MP3 conversion failed: {e}, keeping original format")
+
         logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
 
         return YouTubeResponse(

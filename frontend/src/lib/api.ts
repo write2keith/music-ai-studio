@@ -220,11 +220,11 @@ export const api = {
       fd.append("output_format", outputFormat);
       return upload<CompressResult>("/api/tools/compress", fd);
     },
-    youtube: (url: string) =>
+    youtube: (url: string, mp3: boolean = false) =>
       request<YouTubeResult>("/api/tools/youtube", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, mp3 }),
       }),
     vocalScore: (reference: File, recording: File) => {
       const fd = new FormData();

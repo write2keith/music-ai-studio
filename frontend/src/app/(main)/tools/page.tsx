@@ -53,6 +53,7 @@ const BIT_DEPTHS = [
 
 export default function ToolsPage() {
   const [url, setUrl] = useState("");
+  const [youtubeMp3, setYoutubeMp3] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [result, setResult] = useState<DownloadResult | null>(null);
   const [error, setError] = useState("");
@@ -153,7 +154,7 @@ export default function ToolsPage() {
 
     try {
       const cleanUrl = url.trim().split("&list=")[0].split("?si=")[0];
-      const data = await api.tools.youtube(cleanUrl);
+      const data = await api.tools.youtube(cleanUrl, youtubeMp3);
 
       if (data.title) {
         setResult(data);
@@ -577,6 +578,15 @@ export default function ToolsPage() {
             )}
             Extract
           </Button>
+          <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={youtubeMp3}
+              onChange={(e) => setYoutubeMp3(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-daw-border bg-daw-surface-3 accent-daw-green"
+            />
+            <span className="text-[11px] text-daw-text-dim">MP3</span>
+          </label>
         </div>
 
         {error && (
