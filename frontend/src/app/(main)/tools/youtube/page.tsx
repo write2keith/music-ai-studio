@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Download,
@@ -43,6 +43,9 @@ export default function YouTubePage() {
   const [result, setResult] = useState<DownloadResult | null>(null);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<DownloadResult[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  const downloadStartRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioPlayer = useAudioPlayer();
 
   const isPlaying = result && audioPlayer.isCurrentUrl(result.url) && audioPlayer.isPlaying;
@@ -60,17 +63,24 @@ export default function YouTubePage() {
     setDownloading(true);
     setError("");
     setResult(null);
+    setElapsed(0);
+    downloadStartRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.round((Date.now() - downloadStartRef.current) / 1000));
+    }, 1000);
 
     try {
       const cleanUrl = url.trim().split("&list=")[0].split("?si=")[0];
       const data = await api.tools.youtube(cleanUrl, youtubeMp3);
 
+      clearInterval(timerRef.current!);
       if (data.title) {
         setResult(data);
         setHistory((prev) => [data, ...prev.slice(0, 9)]);
         setUrl("");
       }
     } catch (err) {
+      clearInterval(timerRef.current!);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || "Network error");
     }
@@ -105,11 +115,16 @@ export default function YouTubePage() {
           </div>
           <Button onClick={handleDownload} disabled={downloading || !url.trim()} className="shrink-0">
             {downloading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {elapsed}s
+              </>
             ) : (
-              <Download className="w-4 h-4" />
+              <>
+                <Download className="w-4 h-4" />
+                Extract
+              </>
             )}
-            Extract
           </Button>
           <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
             <input
@@ -121,6 +136,18 @@ export default function YouTubePage() {
             <span className="text-[11px] text-daw-text-dim">MP3</span>
           </label>
         </div>
+
+        {downloading && (
+          <p className="text-[11px] text-daw-text-dim text-center animate-pulse">
+            {elapsed < 5
+              ? "Connecting to YouTube..."
+              : elapsed < 15
+              ? "Extracting audio stream..."
+              : elapsed < 40
+              ? "Downloading audio... still working"
+              : "Still working... YouTube may be slow"}
+          </p>
+        )}
 
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
