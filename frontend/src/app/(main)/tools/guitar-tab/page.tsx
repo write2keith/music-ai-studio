@@ -113,10 +113,12 @@ export default function GuitarTabPage() {
         <div
           onDrop={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             const f = e.dataTransfer.files[0];
             if (f) { setTabFile(f); setTabResult(null); setTabError(""); }
           }}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onClick={() => document.getElementById("tab-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",

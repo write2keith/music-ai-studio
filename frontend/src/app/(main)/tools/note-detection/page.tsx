@@ -148,6 +148,7 @@ export default function NoteDetectionPage() {
         <div
           onDrop={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             const f = e.dataTransfer.files[0];
             if (f?.type.startsWith("audio/") || /\.(wav|mp3|m4a|flac|ogg)$/i.test(f.name)) {
               setTranscribeFile(f);
@@ -155,7 +156,8 @@ export default function NoteDetectionPage() {
               setTranscribeError("");
             }
           }}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onClick={() => document.getElementById("transcribe-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors",

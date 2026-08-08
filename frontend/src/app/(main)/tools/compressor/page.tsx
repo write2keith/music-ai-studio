@@ -54,6 +54,7 @@ export default function CompressorPage() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const f = e.dataTransfer.files[0];
     if (f?.type.startsWith("audio/") || f?.name.endsWith(".wav")) {
       setCompressFile(f);
@@ -98,7 +99,8 @@ export default function CompressorPage() {
         {/* File Upload */}
         <div
           onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onClick={() => document.getElementById("compress-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors",

@@ -94,10 +94,12 @@ export default function ChordDetectionPage() {
         <div
           onDrop={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             const f = e.dataTransfer.files[0];
             if (f) { setChordFile(f); setChordResult(null); setChordError(""); }
           }}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onClick={() => document.getElementById("chord-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",

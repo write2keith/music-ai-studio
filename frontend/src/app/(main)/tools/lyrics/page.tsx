@@ -95,10 +95,12 @@ export default function LyricsPage() {
         <div
           onDrop={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             const f = e.dataTransfer.files[0];
             if (f) { setLyricFile(f); setLyricResult(null); setLyricError(""); }
           }}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onClick={() => document.getElementById("lyric-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors",
