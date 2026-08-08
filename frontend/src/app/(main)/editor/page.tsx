@@ -36,6 +36,7 @@ function createTrack(id: string, name: string, color: string): TrackData {
     solo: false,
     volume: 0.8,
     duration: 0,
+    startOffset: 0,
   };
 }
 
@@ -57,7 +58,7 @@ export default function EditorPage() {
   const chunksRef = useRef<Blob[]>([]);
   const recordingTrackRef = useRef<string>("");
 
-  const maxDuration = Math.max(...tracks.map((t) => t.duration), 10);
+  const maxDuration = Math.max(...tracks.map((t) => t.startOffset + t.duration), 10);
 
   const [metronomeOn, setMetronomeOn] = useState(false);
   const metronomeCtxRef = useRef<AudioContext | null>(null);
@@ -192,6 +193,27 @@ export default function EditorPage() {
     setTracks((prev) => [...prev, createTrack(id, name, color)]);
   }
 
+  function loadFileToTrack(trackId: string, file: File) {
+    const blob = new Blob([file], { type: file.type || "audio/wav" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onloadedmetadata = () => {
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? { ...t, audioBlob: blob, audioUrl: url, duration: audio.duration, name: file.name.replace(/\.[^.]+$/, "") }
+            : t
+        )
+      );
+    };
+  }
+
+  function setTrackOffset(trackId: string, offset: number) {
+    setTracks((prev) =>
+      prev.map((t) => (t.id === trackId ? { ...t, startOffset: Math.max(0, offset) } : t))
+    );
+  }
+
   function removeTrack(id: string) {
     setTracks((prev) => prev.filter((t) => t.id !== id));
   }
@@ -214,20 +236,26 @@ export default function EditorPage() {
           })
       )
     ).then((buffers) => {
-      const length = Math.max(...buffers.map((b) => b.length));
-      const out = ctx.createBuffer(2, length, ctx.sampleRate);
+      const sampleRate = ctx.sampleRate;
+      const maxEnd = Math.max(...activeTracks.map((t, i) =>
+        t.startOffset * sampleRate + buffers[i].length
+      ));
+      const length = Math.ceil(maxEnd);
+      const out = ctx.createBuffer(2, length, sampleRate);
       const left = out.getChannelData(0);
       const right = out.getChannelData(1);
 
-      for (const buf of buffers) {
+      activeTracks.forEach((t, idx) => {
+        const buf = buffers[idx];
+        const offsetSamples = Math.round(t.startOffset * sampleRate);
         for (let c = 0; c < Math.min(buf.numberOfChannels, 2); c++) {
           const data = buf.getChannelData(c);
           const outChan = c === 0 ? left : right;
           for (let i = 0; i < data.length; i++) {
-            outChan[i] += data[i] * 0.5;
+            outChan[offsetSamples + i] += data[i] * 0.5;
           }
         }
-      }
+      });
 
       const wav = encodeWav(out);
       const blob = new Blob([wav], { type: "audio/wav" });
@@ -390,6 +418,8 @@ export default function EditorPage() {
                     )
                   )
                 }
+                onFileLoad={(file) => loadFileToTrack(track.id, file)}
+                onOffsetChange={(offset) => setTrackOffset(track.id, offset)}
               />
             </div>
             <button

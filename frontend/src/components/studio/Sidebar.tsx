@@ -51,7 +51,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto py-3 px-2 space-y-5">
         <NavSection label="Main">
           {mainLinks.map(({ href, label, icon: Icon }) => (
-            <NavItem key={href} href={href} active={pathname === href} icon={<Icon className="w-4 h-4" />}>
+            <NavItem key={href} href={href} active={pathname === href || (href === "/tools" && pathname.startsWith("/tools/"))} icon={<Icon className="w-4 h-4" />}>
               {label}
             </NavItem>
           ))}

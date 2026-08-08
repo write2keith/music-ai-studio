@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useEffect } from "react";
-import { Play, Pause, Mic, Volume2, VolumeX } from "lucide-react";
+import { useRef, useEffect, useState, useCallback } from "react";
+import { Play, Pause, Mic, Volume2, VolumeX, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface TrackData {
@@ -16,6 +16,7 @@ export interface TrackData {
   solo: boolean;
   volume: number;
   duration: number;
+  startOffset: number;
 }
 
 interface TrackRowProps {
@@ -25,6 +26,8 @@ interface TrackRowProps {
   onToggleArm: () => void;
   onVolumeChange: (v: number) => void;
   onNameChange: (name: string) => void;
+  onFileLoad: (file: File) => void;
+  onOffsetChange: (offset: number) => void;
   isPlaying: boolean;
   playheadTime: number;
 }
@@ -46,6 +49,8 @@ export function TrackRow({
   onToggleArm,
   onVolumeChange,
   onNameChange,
+  onFileLoad,
+  onOffsetChange,
   isPlaying,
   playheadTime,
 }: TrackRowProps) {
@@ -87,14 +92,16 @@ export function TrackRow({
 
     audio.volume = track.muted ? 0 : track.volume;
 
-    if (isPlaying && !track.muted) {
-      const offset = playheadTime % (track.duration || 1);
-      audio.currentTime = offset;
+    const localTime = playheadTime - track.startOffset;
+    const shouldPlay = isPlaying && !track.muted && localTime >= 0 && localTime < (track.duration || 1);
+
+    if (shouldPlay) {
+      audio.currentTime = localTime;
       audio.play().catch(() => {});
     } else {
       audio.pause();
     }
-  }, [isPlaying, playheadTime, track.muted, track.volume, track.duration]);
+  }, [isPlaying, playheadTime, track.muted, track.volume, track.duration, track.startOffset]);
 
   function drawWaveform(data: Float32Array) {
     const canvas = canvasRef.current;
@@ -128,8 +135,32 @@ export function TrackRow({
     ctx.stroke();
   }
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) onFileLoad(file);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [onFileLoad]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) onFileLoad(file);
+    },
+    [onFileLoad]
+  );
+
   return (
     <div
+      ref={containerRef}
       className={cn(
         "flex items-center gap-3 p-3 rounded-lg transition-colors group",
         track.isRecording ? "bg-red-500/10 border border-red-500/30" : "bg-daw-surface-2 hover:bg-daw-surface-3",
@@ -146,8 +177,25 @@ export function TrackRow({
         />
       </div>
 
-      {/* Waveform */}
-      <div className="flex-1 h-12 rounded bg-daw-surface-1 overflow-hidden relative">
+      {/* Waveform area with drop target */}
+      <div
+        className={cn(
+          "flex-1 h-12 rounded bg-daw-surface-1 overflow-hidden relative transition-colors",
+          isDragOver && "ring-1 ring-daw-accent bg-daw-accent/5"
+        )}
+        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+        title="Click or drop audio file to load"
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
         {track.audioBlob ? (
           <>
             <canvas ref={canvasRef} width={600} height={48} className="w-full h-full" />
@@ -155,20 +203,37 @@ export function TrackRow({
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-white/80 z-10"
                 style={{
-                  left: `${((playheadTime % (track.duration || 1)) / (track.duration || 1)) * 100}%`,
+                  left: `${(Math.max(0, (playheadTime - track.startOffset)) / (track.duration || 1)) * 100}%`,
                 }}
               />
             )}
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-[10px] text-daw-text-dim">
+          <div className="flex items-center justify-center h-full text-[10px] text-daw-text-dim cursor-pointer">
             {track.isArmed ? (
               <span className="text-red-400 animate-pulse">Ready to record...</span>
             ) : (
-              "Drop audio here or arm to record"
+              <span className="flex items-center gap-1">
+                <Upload className="w-3 h-3" />
+                Drop audio here or arm to record
+              </span>
             )}
           </div>
         )}
+      </div>
+
+      {/* Offset */}
+      <div className="flex items-center gap-1 shrink-0">
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={track.startOffset}
+          onChange={(e) => onOffsetChange(Math.max(0, parseFloat(e.target.value) || 0))}
+          className="w-12 bg-daw-surface-1 text-daw-text text-[10px] text-center rounded px-1 py-0.5 outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          title="Start offset (seconds)"
+        />
+        <span className="text-[9px] text-daw-text-dim">s</span>
       </div>
 
       {/* Controls */}
