@@ -63,6 +63,7 @@ async def download_youtube(body: YouTubeRequest):
 
     import yt_dlp
     import re
+    import subprocess
 
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -70,75 +71,112 @@ async def download_youtube(body: YouTubeRequest):
     file_id = uuid.uuid4().hex[:12]
     output_template = str(output_dir / f"yt_{file_id}.%(ext)s")
 
-    ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-        "outtmpl": output_template,
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": False,
-        "socket_timeout": 30,
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        "progress_hooks": [lambda d: logger.debug(f"YouTube download: {d.get('_percent_str', '?')}")],
-    }
+    # Try multiple player client strategies in order
+    client_strategies = [
+        {
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+            "label": "android+web",
+        },
+        {
+            "extractor_args": {"youtube": {"player_client": ["web", "android"]}},
+            "label": "web+android",
+        },
+        {
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
+            "label": "web",
+        },
+        {
+            "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
+            "label": "ios+android",
+        },
+    ]
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-        title = info.get("title", "Unknown")
-        uploader = info.get("uploader", "Unknown Artist")
-        duration = info.get("duration", 0) or 0
-        thumbnail = info.get("thumbnail", "")
+    last_error = ""
+    info = None
 
-        candidates = list(output_dir.glob(f"yt_{file_id}.*"))
-        if not candidates:
-            raise HTTPException(status_code=500, detail="Download produced no file")
+    for strategy in client_strategies:
+        ydl_opts = {
+            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+            "outtmpl": output_template,
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "socket_timeout": 45,
+            "extractor_retries": 5,
+            "retries": 5,
+            "fragment_retries": 5,
+            "ignoreerrors": False,
+            "extractor_args": strategy["extractor_args"],
+            "progress_hooks": [lambda d: logger.debug(f"YouTube download: {d.get('_percent_str', '?')}")],
+        }
 
-        dl_path = candidates[0]
-        dl_ext = dl_path.suffix
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+            logger.info(f"YouTube extraction succeeded with {strategy['label']} client")
+            break
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"YouTube extraction failed with {strategy['label']}: {str(e)[:120]}")
+            continue
 
-        safe_title = re.sub(r'[^\w\-]', '_', title)
-        safe_title = re.sub(r'_+', '_', safe_title).strip('_')[:80]
-        if not safe_title:
-            safe_title = f"youtube_{file_id}"
-        safe_name = f"{safe_title}{dl_ext}"
-        final_path = output_dir / safe_name
-        counter = 1
-        while final_path.exists():
-            final_path = output_dir / f"{safe_title}_{counter}{dl_ext}"
-            counter += 1
-        dl_path.rename(final_path)
-        filename = final_path.name
-
-        if body.mp3:
-            try:
-                from pydub import AudioSegment
-                audio = AudioSegment.from_file(str(final_path))
-                mp3_name = final_path.stem + ".mp3"
-                mp3_path = output_dir / mp3_name
-                audio.export(str(mp3_path), format="mp3", bitrate="192k")
-                final_path.unlink(missing_ok=True)
-                filename = mp3_path.name
-            except ImportError:
-                logger.warning("pydub not available, keeping original format")
-            except Exception as e:
-                logger.warning(f"MP3 conversion failed: {e}, keeping original format")
-
-        logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
-
-        return YouTubeResponse(
-            ok=True,
-            title=title,
-            artist=uploader,
-            filename=filename,
-            url=f"/api/audio/{filename}",
-            duration_secs=float(duration),
-            thumbnail=thumbnail or "",
+    if info is None:
+        logger.error(f"YouTube extract failed with all strategies: {last_error[:200]}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Download failed after trying all methods: {last_error[:200]}",
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"YouTube download failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)[:200]}")
+
+    title = info.get("title", "Unknown")
+    uploader = info.get("uploader", "Unknown Artist")
+    duration = info.get("duration", 0) or 0
+    thumbnail = info.get("thumbnail", "")
+
+    candidates = list(output_dir.glob(f"yt_{file_id}.*"))
+    if not candidates:
+        raise HTTPException(status_code=500, detail="Download produced no file")
+
+    dl_path = candidates[0]
+    dl_ext = dl_path.suffix
+
+    safe_title = re.sub(r'[^\w\-]', '_', title)
+    safe_title = re.sub(r'_+', '_', safe_title).strip('_')[:80]
+    if not safe_title:
+        safe_title = f"youtube_{file_id}"
+    safe_name = f"{safe_title}{dl_ext}"
+    final_path = output_dir / safe_name
+    counter = 1
+    while final_path.exists():
+        final_path = output_dir / f"{safe_title}_{counter}{dl_ext}"
+        counter += 1
+    dl_path.rename(final_path)
+    filename = final_path.name
+
+    if body.mp3:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(final_path))
+            mp3_name = final_path.stem + ".mp3"
+            mp3_path = output_dir / mp3_name
+            audio.export(str(mp3_path), format="mp3", bitrate="192k")
+            final_path.unlink(missing_ok=True)
+            filename = mp3_path.name
+        except ImportError:
+            logger.warning("pydub not available, keeping original format")
+        except Exception as e:
+            logger.warning(f"MP3 conversion failed: {e}, keeping original format")
+
+    logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
+
+    return YouTubeResponse(
+        ok=True,
+        title=title,
+        artist=uploader,
+        filename=filename,
+        url=f"/api/audio/{filename}",
+        duration_secs=float(duration),
+        thumbnail=thumbnail or "",
+    )
 
 
 @router.post("/compress", response_model=CompressResponse)
