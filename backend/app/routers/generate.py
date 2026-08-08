@@ -94,7 +94,7 @@ async def get_generation_status(job_id: str):
             filename=filename,
             duration=job.result.get("duration"),
         )
-        track_store.complete(job_id)
+        track_store.complete(job_id, filepath=str(filepath), filename=filename)
 
     return response
 

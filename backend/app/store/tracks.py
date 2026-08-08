@@ -176,10 +176,15 @@ class InMemoryTrackStore:
         logger.info(f"Track created: {track.id} ({track.title})")
         return track
 
-    def complete(self, track_id: str) -> Optional[Track]:
+    def complete(self, track_id: str, filepath: str = None, filename: str = None) -> Optional[Track]:
         track = self._tracks.get(track_id)
         if track:
             track.complete()
+            if filepath:
+                track.filepath = filepath
+            if filename:
+                track.filename = filename
+                track.url = f"/api/audio/{filename}"
             logger.info(f"Track completed: {track_id}")
         return track
 
