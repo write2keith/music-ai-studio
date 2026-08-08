@@ -92,7 +92,10 @@ async def download_youtube(body: YouTubeRequest):
         dl_path = candidates[0]
         dl_ext = dl_path.suffix
 
-        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip().rstrip('.')[:80]
+        safe_title = re.sub(r'[^\w\-]', '_', title)
+        safe_title = re.sub(r'_+', '_', safe_title).strip('_')[:80]
+        if not safe_title:
+            safe_title = f"youtube_{file_id}"
         safe_name = f"{safe_title}{dl_ext}"
         final_path = output_dir / safe_name
         counter = 1
