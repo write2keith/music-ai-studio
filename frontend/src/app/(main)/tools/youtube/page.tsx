@@ -74,10 +74,12 @@ export default function YouTubePage() {
       const data = await api.tools.youtube(cleanUrl, youtubeMp3);
 
       clearInterval(timerRef.current!);
-      if (data.title) {
+      if (data) {
         setResult(data);
         setHistory((prev) => [data, ...prev.slice(0, 9)]);
         setUrl("");
+      } else {
+        setError("No data returned from server");
       }
     } catch (err) {
       clearInterval(timerRef.current!);
