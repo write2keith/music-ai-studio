@@ -111,6 +111,13 @@ export default function LyricsPage() {
     };
   }, [lyricAudioUrl]);
 
+  const formatTimestamp = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(2, "0")}`;
+  };
+
   return (
     <div className="max-w-2xl">
       <div className="pt-6 border-t border-daw-border">
@@ -221,13 +228,32 @@ export default function LyricsPage() {
               exit={{ opacity: 0, y: -12 }}
               className="space-y-3 border border-emerald-400/20 rounded-xl p-4"
             >
-              <div className="flex items-center gap-2">
-                <Badge variant="green">
-                  {lyricResult.lyrics.length} lines
-                </Badge>
-                {lyricResult.language && (
-                  <span className="text-xs text-daw-text-dim">Language: {lyricResult.language}</span>
-                )}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="green">
+                    {lyricResult.lyrics.length} lines
+                  </Badge>
+                  {lyricResult.language && (
+                    <span className="text-xs text-daw-text-dim">Language: {lyricResult.language}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    const lrc = lyricResult.lyrics
+                      .map((l: { start: number; text: string }) => `[${formatTimestamp(l.start)}]${l.text}`)
+                      .join("\n");
+                    const blob = new Blob([lrc], { type: "text/plain" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "lyrics.txt";
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                >
+                  <Download className="w-3 h-3" />
+                  Save .txt
+                </button>
               </div>
               <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
                 {lyricResult.lyrics.map((line, i: number) => (
