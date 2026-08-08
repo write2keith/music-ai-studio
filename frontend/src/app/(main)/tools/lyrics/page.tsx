@@ -11,6 +11,8 @@ import {
   Check,
   Music,
   FileAudio,
+  Play,
+  Pause,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,30 @@ export default function LyricsPage() {
   const [lyricError, setLyricError] = useState("");
   const [lyricResult, setLyricResult] = useState<LyricTranscribeResult | null>(null);
   const lyricPollId = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [lyricAudioUrl, setLyricAudioUrl] = useState<string>("");
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  const handleFileSelect = useCallback((f: File) => {
+    if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
+    setLyricFile(f);
+    setLyricResult(null);
+    setLyricError("");
+    const url = URL.createObjectURL(f);
+    setLyricAudioUrl(url);
+  }, [lyricAudioUrl]);
+
+  const togglePreview = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play();
+      setIsPreviewing(true);
+    } else {
+      audio.pause();
+      setIsPreviewing(false);
+    }
+  }, []);
 
   const pollLyrics = useCallback((jobId: string) => {
     let attempts = 0;
@@ -72,11 +98,10 @@ export default function LyricsPage() {
 
   useEffect(() => {
     return () => {
-      if (lyricPollId.current) {
-        clearInterval(lyricPollId.current);
-      }
+      if (lyricPollId.current) clearInterval(lyricPollId.current);
+      if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
     };
-  }, []);
+  }, [lyricAudioUrl]);
 
   return (
     <div className="max-w-2xl">
@@ -97,7 +122,7 @@ export default function LyricsPage() {
             e.preventDefault();
             e.stopPropagation();
             const f = e.dataTransfer.files[0];
-            if (f) { setLyricFile(f); setLyricResult(null); setLyricError(""); }
+            if (f) handleFileSelect(f);
           }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -116,12 +141,18 @@ export default function LyricsPage() {
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) { setLyricFile(f); setLyricResult(null); setLyricError(""); }
+              if (f) handleFileSelect(f);
             }}
           />
           {lyricFile ? (
-            <div className="flex items-center justify-center gap-2 text-daw-green">
-              <FileAudio className="w-5 h-5" />
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePreview(); }}
+                className="p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+              >
+                {isPreviewing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
+              </button>
+              <FileAudio className="w-5 h-5 text-daw-green" />
               <span className="text-sm font-medium">{lyricFile.name}</span>
               {lyricPolling && (
                 <span className="flex items-center gap-1 text-yellow-400 text-xs">
@@ -137,6 +168,16 @@ export default function LyricsPage() {
             </div>
           )}
         </div>
+
+        {lyricAudioUrl && (
+          <audio
+            ref={audioRef}
+            src={lyricAudioUrl}
+            onEnded={() => setIsPreviewing(false)}
+            onPause={() => setIsPreviewing(false)}
+            className="hidden"
+          />
+        )}
 
         <Button
           size="lg"
