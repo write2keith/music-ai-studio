@@ -101,7 +101,10 @@ def _run_vocal_remove(params: dict) -> dict:
 
 
 def _run_lyric_transcribe(params: dict) -> dict:
-    import whisper
+    try:
+        import whisper
+    except ImportError:
+        import openai_whisper as whisper
     from pathlib import Path
 
     audio_path = params["audio_path"]
