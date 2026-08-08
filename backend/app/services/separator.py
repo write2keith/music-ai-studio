@@ -127,8 +127,10 @@ def separate(audio_path: str, model_name: str = "htdemucs") -> dict:
     if _use_cloud():
         if not CLOUD_AVAILABLE:
             raise RuntimeError(
-                "Cloud separation requires HF_TOKEN. "
-                "Get a free token at https://huggingface.co/settings/tokens"
+                "Cloud separation requires HF_TOKEN. Options:\n"
+                "  1. Set HF_TOKEN in your .env for cloud separation (free at https://huggingface.co/settings/tokens)\n"
+                "  2. Go to Settings > Stem Separation and select 'Local Demucs' to use your machine\n"
+                "  3. Or set SEPARATION_MODE=local in backend/.env"
             )
         return _separate_cloud(audio_path, model_name)
 

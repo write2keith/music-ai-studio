@@ -159,6 +159,7 @@ async def get_separation_settings():
         "cloud_available": bool(settings.HF_TOKEN or _active_sep_token),
         "hf_token_configured": bool(settings.HF_TOKEN or _active_sep_token),
         "gpu_available": torch.cuda.is_available() if local_available else False,
+        "demucs_available": local_available,
     }
 
 
