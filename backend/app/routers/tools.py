@@ -791,17 +791,17 @@ async def vocal_prep_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if job["status"] == JobStatus.FAILED:
-        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+    if job.status == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.error or "Job failed")
 
     resp = VocalPrepResponse(
         ok=True,
         job_id=job_id,
-        status=job["status"],
+        status=job.status,
     )
 
-    if job["status"] == JobStatus.COMPLETED and job.get("result"):
-        result = job["result"]
+    if job.status == JobStatus.COMPLETED and job.result:
+        result = job.result
         pitch_contour = result.get("pitch_contour", [])
         vocals_path = result.get("vocals_path", "")
         duration = pitch_contour[-1]["time"] if pitch_contour else 0
@@ -859,16 +859,16 @@ async def vocal_remove_status(job_id: str):
     job = queue.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job["status"] == JobStatus.FAILED:
-        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+    if job.status == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.error or "Job failed")
 
     res = {
-        "status": job["status"],
+        "status": job.status,
         "instrumental_ready": False,
         "vocals_ready": False,
     }
-    if job["status"] == JobStatus.COMPLETED and job.get("result"):
-        r = job["result"]
+    if job.status == JobStatus.COMPLETED and job.result:
+        r = job.result
         res["instrumental_ready"] = bool(r.get("instrumental_path"))
         res["vocals_ready"] = bool(r.get("vocals_path"))
     return res
@@ -880,9 +880,9 @@ async def serve_instrumental(job_id: str):
     from ..queue.worker import queue, JobStatus
 
     job = queue.get(job_id)
-    if not job or job["status"] != JobStatus.COMPLETED:
+    if not job or job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=404, detail="Not ready")
-    path = job.get("result", {}).get("instrumental_path", "")
+    path = (job.result or {}).get("instrumental_path", "")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="audio/wav")
@@ -894,9 +894,9 @@ async def serve_vocals(job_id: str):
     from ..queue.worker import queue, JobStatus
 
     job = queue.get(job_id)
-    if not job or job["status"] != JobStatus.COMPLETED:
+    if not job or job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=404, detail="Not ready")
-    path = job.get("result", {}).get("vocals_path", "")
+    path = (job.result or {}).get("vocals_path", "")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="audio/wav")
@@ -1250,17 +1250,17 @@ async def lyric_transcribe_status(job_id: str):
     job = queue.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job["status"] == JobStatus.FAILED:
-        raise HTTPException(status_code=500, detail=job.get("error", "Job failed"))
+    if job.status == JobStatus.FAILED:
+        raise HTTPException(status_code=500, detail=job.error or "Job failed")
 
     resp = LyricTranscribeResponse(
         ok=True,
         job_id=job_id,
-        status=job["status"],
+        status=job.status,
     )
 
-    if job["status"] == JobStatus.COMPLETED and job.get("result"):
-        r = job["result"]
+    if job.status == JobStatus.COMPLETED and job.result:
+        r = job.result
         resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
         resp.full_text = r.get("full_text", "")
         resp.language = r.get("language", "")
