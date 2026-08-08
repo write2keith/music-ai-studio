@@ -26,6 +26,7 @@ import { useAudioPlayer } from "@/lib/audio-player";
 import { api } from "@/lib/api";
 import type { CompressResult, TranscribeResult, TranscribeNote, ChordDetectResult, ChordEvent, PitchTempoResult, LyricTranscribeResult, GuitarTabResult, TabNote, CalibrationResponse } from "@/lib/api";
 import { PitchGraph } from "@/components/PitchGraph";
+import TabRenderer from "@/components/TabRenderer";
 
 interface DownloadResult {
   title: string;
@@ -1526,40 +1527,12 @@ export default function ToolsPage() {
               </div>
 
               <div className="overflow-x-auto">
-                <div className="inline-flex gap-0 min-w-full">
-                  {(tabResult.notes.slice(0, 40) as TabNote[]).map((note, i) => (
-                    <div key={i} className="flex flex-col shrink-0" style={{ width: 28 }}>
-                      <div className="text-[9px] text-daw-text-dim text-center mb-1">
-                        {note.start_time.toFixed(1)}
-                      </div>
-                      {[0, 1, 2, 3, 4, 5].map((s) => (
-                        <div
-                          key={s}
-                          className={cn(
-                            "h-5 border-t border-daw-border flex items-center justify-center text-[10px] font-mono font-bold",
-                            s === 0 ? "border-t-2" : "",
-                            s === 5 ? "border-b-2" : "",
-                            note.string === s
-                              ? "text-orange-300"
-                              : "text-daw-text-dim"
-                          )}
-                        >
-                          {note.string === s ? note.fret : "-"}
-                        </div>
-                      ))}
-                      <div className="text-[8px] text-daw-text-dim text-center mt-0.5">
-                        {note.note_name}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <TabRenderer
+                  notes={tabResult.notes as TabNote[]}
+                  tuning={tabResult.tuning}
+                  durationSecs={tabResult.duration_secs}
+                />
               </div>
-
-              {tabResult.notes.length > 40 && (
-                <p className="text-[10px] text-daw-text-dim text-center">
-                  +{tabResult.notes.length - 40} more notes (showing first 40)
-                </p>
-              )}
 
               {/* Note list */}
               <details className="cursor-pointer">
