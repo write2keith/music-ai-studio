@@ -1,5 +1,6 @@
 import uuid
 import logging
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
@@ -55,13 +56,18 @@ class TranscribeResponse(BaseModel):
     note_count: int = 0
 
 
+def _do_extract(url: str, ydl_opts: dict) -> dict:
+    import yt_dlp
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        return ydl.extract_info(url, download=True)
+
+
 @router.post("/youtube", response_model=YouTubeResponse)
 async def download_youtube(body: YouTubeRequest):
     url = body.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    import yt_dlp
     import re
 
     output_dir = Path(settings.UPLOAD_DIR)
@@ -82,8 +88,8 @@ async def download_youtube(body: YouTubeRequest):
 
     try:
         logger.info(f"YouTube extraction started for: {url[:80]}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(None, lambda: _do_extract(url, ydl_opts))
         logger.info("YouTube extraction download complete")
         title = info.get("title", "Unknown")
         uploader = info.get("uploader", "Unknown Artist")
