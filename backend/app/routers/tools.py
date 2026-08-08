@@ -76,7 +76,7 @@ async def download_youtube(body: YouTubeRequest):
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
-        "socket_timeout": 60,
+        "socket_timeout": 30,
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
 
