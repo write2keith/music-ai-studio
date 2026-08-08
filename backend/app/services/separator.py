@@ -18,7 +18,8 @@ def set_active_separation_mode(mode: str):
 
 def _check_demucs() -> bool:
     try:
-        from demucs import separate as _ds
+        import subprocess
+        from demucs import separate
         subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
         return True
     except Exception:
