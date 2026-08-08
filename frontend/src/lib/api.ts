@@ -10,8 +10,8 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-const MAX_RETRIES = 10;
-const RETRY_DELAY_MS = 800;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 class ApiError extends Error {
   status: number;

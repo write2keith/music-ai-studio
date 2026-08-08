@@ -61,162 +61,85 @@ async def download_youtube(body: YouTubeRequest):
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
+    import yt_dlp
     import re
 
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     file_id = uuid.uuid4().hex[:12]
-
-    # Try yt-dlp first
-    info = _extract_ytdlp(url, output_dir, file_id)
-
-    # Fallback to pytubefix
-    if info is None:
-        logger.info("yt-dlp failed, trying pytubefix fallback...")
-        info = _extract_pytubefix(url, output_dir, file_id)
-
-    if info is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Download failed: both yt-dlp and pytubefix could not extract. Try: pip install -U yt-dlp pytubefix",
-        )
-
-    title = info.get("title", "Unknown")
-    uploader = info.get("uploader", "Unknown Artist")
-    duration = info.get("duration", 0) or 0
-    thumbnail = info.get("thumbnail", "")
-    dl_path = info["filepath"]
-
-    dl_ext = Path(dl_path).suffix
-    safe_title = re.sub(r'[^\w\-]', '_', title)
-    safe_title = re.sub(r'_+', '_', safe_title).strip('_')[:80]
-    if not safe_title:
-        safe_title = f"youtube_{file_id}"
-    safe_name = f"{safe_title}{dl_ext}"
-    final_path = output_dir / safe_name
-    counter = 1
-    while final_path.exists():
-        final_path = output_dir / f"{safe_title}_{counter}{dl_ext}"
-        counter += 1
-    Path(dl_path).rename(final_path)
-    filename = final_path.name
-
-    if body.mp3:
-        try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_file(str(final_path))
-            mp3_name = final_path.stem + ".mp3"
-            mp3_path = output_dir / mp3_name
-            audio.export(str(mp3_path), format="mp3", bitrate="192k")
-            final_path.unlink(missing_ok=True)
-            filename = mp3_path.name
-        except ImportError:
-            logger.warning("pydub not available, keeping original format")
-        except Exception as e:
-            logger.warning(f"MP3 conversion failed: {e}, keeping original format")
-
-    logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
-
-    return YouTubeResponse(
-        ok=True,
-        title=title,
-        artist=uploader,
-        filename=filename,
-        url=f"/api/audio/{filename}",
-        duration_secs=float(duration),
-        thumbnail=thumbnail or "",
-    )
-
-
-def _extract_ytdlp(url: str, output_dir: Path, file_id: str) -> dict | None:
-    try:
-        import yt_dlp
-    except ImportError:
-        logger.warning("yt-dlp not installed")
-        return None
-
     output_template = str(output_dir / f"yt_{file_id}.%(ext)s")
 
-    client_strategies = [
-        {"extractor_args": {"youtube": {"player_client": ["android", "web"]}}, "label": "android+web"},
-        {"extractor_args": {"youtube": {"player_client": ["web", "android"]}}, "label": "web+android"},
-        {"extractor_args": {"youtube": {"player_client": ["web"]}}, "label": "web"},
-        {"extractor_args": {"youtube": {"player_client": ["ios", "android"]}}, "label": "ios+android"},
-    ]
-
-    for strategy in client_strategies:
-        ydl_opts = {
-            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-            "outtmpl": output_template,
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": False,
-            "socket_timeout": 45,
-            "extractor_retries": 3,
-            "retries": 3,
-            "ignoreerrors": False,
-            "extractor_args": strategy["extractor_args"],
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                meta = ydl.extract_info(url, download=True)
-            candidates = list(output_dir.glob(f"yt_{file_id}.*"))
-            if candidates and meta:
-                logger.info(f"YouTube extraction succeeded with yt-dlp {strategy['label']}")
-                return {
-                    "title": meta.get("title", "Unknown"),
-                    "uploader": meta.get("uploader", "Unknown Artist"),
-                    "duration": meta.get("duration", 0) or 0,
-                    "thumbnail": meta.get("thumbnail", ""),
-                    "filepath": str(candidates[0]),
-                }
-        except Exception as e:
-            logger.warning(f"yt-dlp {strategy['label']} failed: {str(e)[:120]}")
-
-    return None
-
-
-def _extract_pytubefix(url: str, output_dir: Path, file_id: str) -> dict | None:
-    try:
-        from pytubefix import YouTube
-    except ImportError:
-        logger.warning("pytubefix not installed. Install with: pip install pytubefix")
-        return None
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+        "outtmpl": output_template,
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": False,
+        "socket_timeout": 60,
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+    }
 
     try:
-        yt = YouTube(url)
-        stream = yt.streams.filter(only_audio=True).order_by("abr").desc().first()
-        if not stream:
-            logger.warning("pytubefix: no audio stream found")
-            return None
+        logger.info(f"YouTube extraction started for: {url[:80]}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+        logger.info("YouTube extraction download complete")
+        title = info.get("title", "Unknown")
+        uploader = info.get("uploader", "Unknown Artist")
+        duration = info.get("duration", 0) or 0
+        thumbnail = info.get("thumbnail", "")
 
-        mime = stream.mime_type or ""
-        if "webm" in mime:
-            ext = "webm"
-        elif "mp4" in mime or "m4a" in mime:
-            ext = "m4a"
-        elif "wav" in mime:
-            ext = "wav"
-        else:
-            ext = "webm"
+        candidates = list(output_dir.glob(f"yt_{file_id}.*"))
+        if not candidates:
+            raise HTTPException(status_code=500, detail="Download produced no file")
 
-        out_filename = f"yt_{file_id}.{ext}"
-        stream.download(output_path=str(output_dir), filename=out_filename)
-        out_path = output_dir / out_filename
+        dl_path = candidates[0]
+        dl_ext = dl_path.suffix
 
-        logger.info(f"YouTube extraction succeeded with pytubefix: '{yt.title}'")
+        safe_title = re.sub(r'[^\w\-]', '_', title)
+        safe_title = re.sub(r'_+', '_', safe_title).strip('_')[:80]
+        if not safe_title:
+            safe_title = f"youtube_{file_id}"
+        safe_name = f"{safe_title}{dl_ext}"
+        final_path = output_dir / safe_name
+        counter = 1
+        while final_path.exists():
+            final_path = output_dir / f"{safe_title}_{counter}{dl_ext}"
+            counter += 1
+        dl_path.rename(final_path)
+        filename = final_path.name
 
-        return {
-            "title": yt.title or "Unknown",
-            "uploader": yt.author or "Unknown Artist",
-            "duration": yt.length or 0,
-            "thumbnail": yt.thumbnail_url or "",
-            "filepath": str(out_path),
-        }
+        if body.mp3:
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(str(final_path))
+                mp3_name = final_path.stem + ".mp3"
+                mp3_path = output_dir / mp3_name
+                audio.export(str(mp3_path), format="mp3", bitrate="192k")
+                final_path.unlink(missing_ok=True)
+                filename = mp3_path.name
+            except ImportError:
+                logger.warning("pydub not available, keeping original format")
+            except Exception as e:
+                logger.warning(f"MP3 conversion failed: {e}, keeping original format")
+
+        logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
+
+        return YouTubeResponse(
+            ok=True,
+            title=title,
+            artist=uploader,
+            filename=filename,
+            url=f"/api/audio/{filename}",
+            duration_secs=float(duration),
+            thumbnail=thumbnail or "",
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.warning(f"pytubefix extraction failed: {str(e)[:200]}")
-        return None
+        logger.error(f"YouTube download failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)[:200]}")
 
 
 @router.post("/compress", response_model=CompressResponse)
