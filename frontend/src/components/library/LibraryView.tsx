@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Download, Edit3, Scissors, MoreHorizontal, Music, Globe, GlobeOff } from "lucide-react";
+import { Play, Download, Edit3, Scissors, MoreHorizontal, Music, Globe, GlobeOff, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { IconButton } from "@/components/ui/button";
@@ -11,9 +11,11 @@ import { TrackCardSkeleton } from "@/components/ui/skeleton";
 import { useLibrary, usePublish, useUnpublish } from "@/lib/hooks";
 import type { Track } from "@/lib/types";
 import { useState } from "react";
+import WaveformEditor from "@/components/WaveformEditor";
 
 export function LibraryView() {
   const [tab, setTab] = useState("all");
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const { data: tracks, loading, error, refetch } = useLibrary(
     tab === "all" ? undefined : tab
   );
@@ -81,8 +83,29 @@ export function LibraryView() {
               index={i}
               onPublish={() => publishTrack(track.id)}
               onUnpublish={() => unpublishTrack(track.id)}
+              onEdit={() => setEditingTrack(track)}
             />
           ))}
+        </div>
+      )}
+      {editingTrack && (
+        <div className="mt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-bold text-daw-text">
+              Editing: {editingTrack.title}
+            </h3>
+            <button
+              onClick={() => setEditingTrack(null)}
+              className="p-1 rounded-md border border-daw-border text-daw-text-dim hover:text-daw-text hover:border-daw-text-dim transition-colors ml-auto"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <WaveformEditor
+            initialAudioUrl={editingTrack.url}
+            initialFileName={editingTrack.filename || editingTrack.title}
+            onClose={() => setEditingTrack(null)}
+          />
         </div>
       )}
     </div>
@@ -94,11 +117,13 @@ function LibraryRow({
   index,
   onPublish,
   onUnpublish,
+  onEdit,
 }: {
   track: Track;
   index: number;
   onPublish: () => void;
   onUnpublish: () => void;
+  onEdit: () => void;
 }) {
   return (
     <motion.div
@@ -160,7 +185,7 @@ function LibraryRow({
             )}
           </IconButton>
         )}
-        <IconButton><Edit3 className="w-3.5 h-3.5" /></IconButton>
+        <IconButton title="Edit" onClick={onEdit}><Edit3 className="w-3.5 h-3.5" /></IconButton>
         <IconButton><Download className="w-3.5 h-3.5" /></IconButton>
         <IconButton><Scissors className="w-3.5 h-3.5" /></IconButton>
         <IconButton><MoreHorizontal className="w-3.5 h-3.5" /></IconButton>

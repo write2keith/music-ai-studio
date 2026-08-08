@@ -1235,14 +1235,26 @@ async def lyric_transcribe_status(job_id: str):
 
 # ── Guitar Tab Generator ──────────────────────────────────────
 
-GUITAR_TUNING_EADGBE = [40, 45, 50, 55, 59, 64]
-GUITAR_STRINGS = ["E", "A", "D", "G", "B", "e"]
+GUITAR_TUNINGS = {
+    "standard":       {"name": "Standard (EADGBE)",    "midi": [40, 45, 50, 55, 59, 64], "strings": ["E", "A", "D", "G", "B", "e"]},
+    "drop_d":         {"name": "Drop D (DADGBE)",      "midi": [38, 45, 50, 55, 59, 64], "strings": ["D", "A", "D", "G", "B", "e"]},
+    "open_g":         {"name": "Open G (DGDGBD)",      "midi": [38, 43, 50, 55, 59, 62], "strings": ["D", "G", "D", "G", "B", "D"]},
+    "open_d":         {"name": "Open D (DADF#AD)",     "midi": [38, 45, 50, 54, 57, 62], "strings": ["D", "A", "D", "F#", "A", "D"]},
+    "open_e":         {"name": "Open E (EBEG#BE)",     "midi": [40, 47, 52, 56, 59, 64], "strings": ["E", "B", "E", "G#", "B", "E"]},
+    "dadgad":         {"name": "DADGAD",               "midi": [38, 45, 50, 55, 57, 62], "strings": ["D", "A", "D", "G", "A", "D"]},
+    "eb_standard":    {"name": "Eb Standard",          "midi": [39, 44, 49, 54, 58, 63], "strings": ["Eb", "Ab", "Db", "Gb", "Bb", "eb"]},
+    "half_step_down": {"name": "Half Step Down",       "midi": [39, 44, 49, 54, 58, 63], "strings": ["Eb", "Ab", "Db", "Gb", "Bb", "eb"]},
+    "c_standard":     {"name": "C Standard",           "midi": [36, 41, 46, 51, 55, 60], "strings": ["C", "F", "Bb", "Eb", "G", "C"]},
+    "drop_c":         {"name": "Drop C (CGCFAD)",      "midi": [36, 43, 48, 53, 57, 62], "strings": ["C", "G", "C", "F", "A", "D"]},
+}
+DEFAULT_TUNING = "standard"
 MAX_FRET = 22
 
 
-def _midi_to_tab(midi: int) -> list[tuple[int, int]]:
+def _midi_to_tab(midi: int, tuning_key: str = DEFAULT_TUNING) -> list[tuple[int, int]]:
+    tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
     candidates = []
-    for s, open_midi in enumerate(GUITAR_TUNING_EADGBE):
+    for s, open_midi in enumerate(tuning["midi"]):
         fret = midi - open_midi
         if 0 <= fret <= MAX_FRET:
             candidates.append((s, fret))
@@ -1269,13 +1281,16 @@ class GuitarTabResponse(BaseModel):
     duration_secs: float = 0.0
     note_count: int = 0
     tuning: list[str] = ["E", "A", "D", "G", "B", "e"]
+    tuning_key: str = "standard"
 
 
 @router.post("/guitar-tab", response_model=GuitarTabResponse)
 async def guitar_tab(
     file: UploadFile = File(...),
     store_id: str = Form(default="default"),
+    tuning_key: str = Form(default=DEFAULT_TUNING),
 ):
+    tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1313,7 +1328,7 @@ async def guitar_tab(
     tab_notes = []
     for n in result["notes"]:
         midi = n["pitch"]
-        candidates = _midi_to_tab(midi)
+        candidates = _midi_to_tab(midi, tuning_key)
         if not candidates:
             continue
         best_s, best_f = candidates[0]
@@ -1323,7 +1338,7 @@ async def guitar_tab(
             pitch=midi,
             note_name=n["note_name"],
             string=best_s,
-            string_name=GUITAR_STRINGS[best_s],
+            string_name=tuning["strings"][best_s],
             fret=best_f,
             velocity=n["velocity"],
         ))
@@ -1331,8 +1346,10 @@ async def guitar_tab(
     return GuitarTabResponse(
         ok=True,
         notes=tab_notes,
-        duration_secs=result["duration_secs"],
+        duration_secs=round(result["duration_secs"], 2),
         note_count=len(tab_notes),
+        tuning=tuning["strings"],
+        tuning_key=tuning_key,
     )
 
 
@@ -1346,6 +1363,8 @@ class FeedbackRequest(BaseModel):
     note_name: str | None = None
     original_pitch: int | None = None
     original_note: str | None = None
+    original_chord: str | None = None
+    corrected_chord: str | None = None
     detail: str = ""
 
 
@@ -1361,30 +1380,43 @@ class CalibrationResponse(BaseModel):
     accuracy: float = 1.0
     params: dict = {}
     all_stores: dict = {}
+    chord_corrections: int = 0
+    chord_accuracy: float = 1.0
 
 
 @router.post("/feedback", response_model=CalibrationResponse)
 async def submit_feedback(body: FeedbackRequest):
-    from ..services.calibration import record_correction, get_calibration
+    from ..services.calibration import record_correction, record_chord_correction, get_calibration
 
-    record_correction(
-        store_id=body.store_id,
-        tool=body.tool,
-        action=body.action,
-        note_pitch=body.note_pitch,
-        note_name=body.note_name,
-        original_pitch=body.original_pitch,
-        original_note=body.original_note,
-        detail=body.detail,
-    )
-
+    if body.action == "corrected_chord":
+        record_chord_correction(
+            store_id=body.store_id,
+            original_chord=body.original_chord,
+            corrected_chord=body.corrected_chord,
+            detail=body.detail,
+        )
+    else:
+        record_correction(
+            store_id=body.store_id,
+            tool=body.tool,
+            note_pitch=body.note_pitch,
+            note_name=body.note_name,
+            original_pitch=body.original_pitch,
+            original_note=body.original_note,
+            action=body.action,
+            detail=body.detail,
+        )
     data = get_calibration(body.store_id)
+    stats = get_calibration_stats()
     return CalibrationResponse(
         ok=True,
         store_id=body.store_id,
         total_corrections=data["total_corrections"],
-        accuracy=data.get("accuracy", 1.0),
-        params=data.get("params", {}),
+        accuracy=data["accuracy"],
+        params=data["params"],
+        all_stores=stats,
+        chord_corrections=data.get("chord_corrections", 0),
+        chord_accuracy=data.get("chord_accuracy", 1.0),
     )
 
 

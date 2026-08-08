@@ -25,6 +25,8 @@ def _load_calibration(store_id: str) -> dict:
                 "noise_percentile": 50,
             },
             "accuracy": 1.0,
+            "chord_corrections": 0,
+            "chord_accuracy": 1.0,
         }
     try:
         return json.loads(path.read_text())
@@ -98,6 +100,35 @@ def record_correction(
     logger.info(f"Calibration [{store_id}]: {action} pitch {original_pitch}->{note_pitch}, accuracy={data['accuracy']:.3f}")
 
 
+def record_chord_correction(
+    store_id: str,
+    original_chord: str | None = None,
+    corrected_chord: str | None = None,
+    detail: str = "",
+):
+    data = _load_calibration(store_id)
+    correction = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tool": "chord-detect",
+        "action": "corrected_chord",
+        "original_chord": original_chord,
+        "corrected_chord": corrected_chord,
+        "detail": detail,
+    }
+    data["corrections"].append(correction)
+    data["total_corrections"] += 1
+    data.setdefault("chord_corrections", 0)
+    data["chord_corrections"] += 1
+
+    chord_corrections = [c for c in data["corrections"] if c.get("action") == "corrected_chord"]
+    total_chord = len(chord_corrections)
+    correct_chord = sum(1 for c in chord_corrections if c.get("original_chord") == c.get("corrected_chord"))
+    data["chord_accuracy"] = round(correct_chord / max(total_chord, 1), 3)
+
+    _save_calibration(data)
+    logger.info(f"Calibration [{store_id}]: chord {original_chord}->{corrected_chord}, chord_accuracy={data['chord_accuracy']:.3f}")
+
+
 def get_detection_params(store_id: str) -> dict:
     return _load_calibration(store_id)["params"]
 
@@ -111,6 +142,8 @@ def get_calibration_stats() -> dict:
                 "total_corrections": data["total_corrections"],
                 "accuracy": data.get("accuracy", 1.0),
                 "params": data.get("params", {}),
+                "chord_corrections": data.get("chord_corrections", 0),
+                "chord_accuracy": data.get("chord_accuracy", 1.0),
             }
         except Exception:
             pass

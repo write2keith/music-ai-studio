@@ -122,6 +122,7 @@ export default function ToolsPage() {
   const [lyricResult, setLyricResult] = useState<LyricTranscribeResult | null>(null);
 
   const [tabFile, setTabFile] = useState<File | null>(null);
+  const [tabTuning, setTabTuning] = useState("standard");
   const [tabGenerating, setTabGenerating] = useState(false);
   const [tabError, setTabError] = useState("");
   const [tabResult, setTabResult] = useState<GuitarTabResult | null>(null);
@@ -130,6 +131,8 @@ export default function ToolsPage() {
   const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
   const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null);
   const [editNoteValue, setEditNoteValue] = useState("");
+  const [editingChordIdx, setEditingChordIdx] = useState<number | null>(null);
+  const [editChordValue, setEditChordValue] = useState("");
   const [midiExportUrl, setMidiExportUrl] = useState<string>("");
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -304,7 +307,7 @@ export default function ToolsPage() {
     setTabError("");
     setTabResult(null);
     try {
-      const data = await api.tools.guitarTab(tabFile);
+      const data = await api.tools.guitarTab(tabFile, tabTuning);
       setTabResult(data);
     } catch (err) {
       setTabError(err instanceof Error ? err.message : String(err));
@@ -334,6 +337,25 @@ export default function ToolsPage() {
       setCalibration(cal);
       setEditingNoteIdx(null);
       setEditNoteValue("");
+    } catch {}
+  }
+
+  async function submitChordCorrection(
+    originalChord: string,
+    correctedChord: string,
+  ) {
+    try {
+      const cal = await api.tools.submitFeedback({
+        store_id: "default",
+        tool: "chord-detect",
+        action: "corrected_chord",
+        original_chord: originalChord,
+        corrected_chord: correctedChord,
+        detail: `User corrected chord ${originalChord} to ${correctedChord}`,
+      });
+      setCalibration(cal);
+      setEditingChordIdx(null);
+      setEditChordValue("");
     } catch {}
   }
 
@@ -1288,6 +1310,23 @@ export default function ToolsPage() {
                 <span className="text-xs text-daw-text-dim">
                   {formatDuration(chordResult.duration_secs)}
                 </span>
+                {calibration && calibration.chord_corrections > 0 && (
+                  <span className="text-[10px] text-daw-green">
+                    chord accuracy {Math.round(calibration.chord_accuracy * 100)}%
+                  </span>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={() => setCorrectionMode(!correctionMode)}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+                    correctionMode
+                      ? "border-amber-400/50 text-amber-300 bg-amber-400/10"
+                      : "border-daw-border text-daw-text-dim hover:text-daw-text"
+                  )}
+                >
+                  {correctionMode ? "Done Correcting" : "Correct Chords"}
+                </button>
               </div>
               <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
                 {chordResult.chords.map((c: ChordEvent, i: number) => (
@@ -1295,7 +1334,28 @@ export default function ToolsPage() {
                     <span className="w-14 text-daw-text-dim tabular-nums shrink-0">
                       {c.start_time.toFixed(1)}s
                     </span>
-                    <span className="flex-1 font-mono font-bold text-cyan-300">{c.chord}</span>
+                    {correctionMode && editingChordIdx === i ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          submitChordCorrection(c.chord, editChordValue);
+                        }}
+                        className="flex items-center gap-1 flex-1"
+                      >
+                        <input
+                          type="text"
+                          value={editChordValue}
+                          onChange={(e) => setEditChordValue(e.target.value)}
+                          placeholder={c.chord}
+                          className="w-24 bg-daw-surface-2 border border-amber-400/30 rounded px-1.5 py-0.5 text-[11px] font-mono text-amber-300 outline-none"
+                          autoFocus
+                        />
+                        <button type="submit" className="text-[10px] text-daw-green hover:underline">ok</button>
+                        <button type="button" onClick={() => { setEditingChordIdx(null); setEditChordValue(""); }} className="text-[10px] text-daw-text-dim hover:underline">cancel</button>
+                      </form>
+                    ) : (
+                      <span className="flex-1 font-mono font-bold text-cyan-300">{c.chord}</span>
+                    )}
                     <span className="text-[10px] text-daw-text-dim">{c.notes}</span>
                     <div className="w-12 shrink-0">
                       <div className="h-1 rounded-full bg-daw-surface-2 overflow-hidden">
@@ -1308,6 +1368,14 @@ export default function ToolsPage() {
                     <span className="text-[10px] text-daw-text-dim w-10 text-right tabular-nums">
                       {(c.end_time - c.start_time).toFixed(1)}s
                     </span>
+                    {correctionMode && editingChordIdx !== i && (
+                      <button
+                        onClick={() => { setEditingChordIdx(i); setEditChordValue(c.chord); }}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 shrink-0"
+                      >
+                        edit
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1367,6 +1435,25 @@ export default function ToolsPage() {
           )}
         </div>
 
+        <div>
+          <label className="block text-xs font-medium text-daw-text-dim mb-1.5">Tuning</label>
+          <select
+            value={tabTuning}
+            onChange={(e) => setTabTuning(e.target.value)}
+            className="w-full bg-daw-surface-3 border border-daw-border rounded-lg px-3 py-2 text-sm text-daw-text outline-none focus:border-orange-400/50"
+          >
+            <option value="standard">Standard (EADGBE)</option>
+            <option value="drop_d">Drop D (DADGBE)</option>
+            <option value="open_g">Open G (DGDGBD)</option>
+            <option value="open_d">Open D (DADF#AD)</option>
+            <option value="open_e">Open E (EBEG#BE)</option>
+            <option value="dadgad">DADGAD</option>
+            <option value="half_step_down">Half Step Down (Eb)</option>
+            <option value="drop_c">Drop C (CGCFAD)</option>
+            <option value="c_standard">C Standard</option>
+          </select>
+        </div>
+
         <Button
           size="lg"
           className="w-full"
@@ -1407,7 +1494,7 @@ export default function ToolsPage() {
                     {tabResult.note_count} notes
                   </Badge>
                   <span className="text-xs text-daw-text-dim">
-                    {formatDuration(tabResult.duration_secs)} &middot; Standard EADGBE
+                    {formatDuration(tabResult.duration_secs)} &middot; {tabResult.tuning.join("")}
                   </span>
                   {calibration && calibration.total_corrections > 0 && (
                     <span className="text-[10px] text-daw-green">

@@ -266,9 +266,10 @@ export const api = {
     },
     lyricTranscribeStatus: (jobId: string) =>
       request<LyricTranscribeResult>(`/api/tools/lyric-transcribe/${jobId}`),
-    guitarTab: (file: File) => {
+    guitarTab: (file: File, tuningKey: string = "standard") => {
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("tuning_key", tuningKey);
       return upload<GuitarTabResult>("/api/tools/guitar-tab", fd);
     },
     submitFeedback: (feedback: FeedbackRequest) =>
@@ -420,16 +421,19 @@ export interface GuitarTabResult {
   duration_secs: number;
   note_count: number;
   tuning: string[];
+  tuning_key: string;
 }
 
 export interface FeedbackRequest {
   store_id: string;
   tool: string;
-  action: "corrected" | "added" | "removed";
+  action: "corrected" | "added" | "removed" | "corrected_chord";
   note_pitch?: number;
   note_name?: string;
   original_pitch?: number;
   original_note?: string;
+  original_chord?: string;
+  corrected_chord?: string;
   detail: string;
 }
 
@@ -439,5 +443,7 @@ export interface CalibrationResponse {
   total_corrections: number;
   accuracy: number;
   params: Record<string, number>;
-  all_stores: Record<string, { total_corrections: number; accuracy: number; params: Record<string, number> }>;
+  all_stores: Record<string, { total_corrections: number; accuracy: number; params: Record<string, number>; chord_corrections?: number; chord_accuracy?: number }>;
+  chord_corrections: number;
+  chord_accuracy: number;
 }

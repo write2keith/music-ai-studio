@@ -106,11 +106,25 @@ def _run_lyric_transcribe(params: dict) -> dict:
 
     audio_path = params["audio_path"]
     lang = params.get("language", "auto")
+
+    logger.info(f"Lyric transcribe: separating vocals from {audio_path}...")
+    try:
+        stem_result = separate_stems(audio_path=audio_path, model_name="htdemucs")
+        vocals_path = stem_result["stems"].get("vocals")
+        if not vocals_path:
+            logger.warning("No vocals stem produced, falling back to original audio")
+            vocals_path = audio_path
+        else:
+            logger.info(f"Vocals separated: {vocals_path}")
+    except Exception as e:
+        logger.warning(f"Vocal separation failed ({e}), using original audio")
+        vocals_path = audio_path
+
     whisper_lang = None if lang == "auto" else lang
 
     model = whisper.load_model("base")
     result = model.transcribe(
-        str(audio_path),
+        str(vocals_path),
         language=whisper_lang,
         verbose=False,
         word_timestamps=True,

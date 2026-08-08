@@ -22,7 +22,13 @@ import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { formatTime, formatSize } from "@/lib/utils";
 import type { AudioResult, EffectsParams } from "@/lib/types";
 
-export default function WaveformEditor() {
+interface WaveformEditorProps {
+  initialAudioUrl?: string;
+  initialFileName?: string;
+  onClose?: () => void;
+}
+
+export default function WaveformEditor({ initialAudioUrl, initialFileName, onClose }: WaveformEditorProps) {
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -69,6 +75,23 @@ export default function WaveformEditor() {
 
   const [speedFactor, setSpeedFactor] = useState(1);
   const [mergeFiles, setMergeFiles] = useState<FileList | null>(null);
+
+  useEffect(() => {
+    if (!initialAudioUrl) return;
+    const fetchAudio = async () => {
+      try {
+        const resp = await fetch(initialAudioUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const name = initialFileName || initialAudioUrl.split("/").pop() || "track.wav";
+        const f = new File([blob], name, { type: blob.type || "audio/wav" });
+        loadFile(f);
+      } catch (err) {
+        setError("Failed to load audio from library");
+      }
+    };
+    fetchAudio();
+  }, [initialAudioUrl, initialFileName]);
 
   const loadFile = useCallback((f: File) => {
     setFile(f);
@@ -428,6 +451,14 @@ export default function WaveformEditor() {
                 <span className="text-xs text-daw-text-muted truncate max-w-[180px]">
                   {file?.name}
                 </span>
+                {onClose && (
+                  <button
+                    onClick={onClose}
+                    className="text-xs px-2 py-1 rounded-md border border-daw-border text-daw-text-dim hover:text-daw-text hover:border-daw-text-dim transition-colors ml-2"
+                  >
+                    Close
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-1.5">
