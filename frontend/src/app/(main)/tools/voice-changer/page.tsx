@@ -153,6 +153,7 @@ export default function VoiceChangerPage() {
           )}
         </div>
 
+        {previewUrl && (
         <audio
           ref={previewRef}
           src={previewUrl}
@@ -160,6 +161,7 @@ export default function VoiceChangerPage() {
           onPause={() => setIsPreviewing(false)}
           className="hidden"
         />
+        )}
 
         {/* Pitch */}
         <div>

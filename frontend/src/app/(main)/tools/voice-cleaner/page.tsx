@@ -147,6 +147,7 @@ export default function VoiceCleanerPage() {
           )}
         </div>
 
+        {previewUrl && (
         <audio
           ref={previewRef}
           src={previewUrl}
@@ -154,6 +155,7 @@ export default function VoiceCleanerPage() {
           onPause={() => setIsPreviewing(false)}
           className="hidden"
         />
+        )}
 
         {/* Noise Reduction */}
         <div>

@@ -145,6 +145,7 @@ export default function DereverbPage() {
           )}
         </div>
 
+        {previewUrl && (
         <audio
           ref={previewRef}
           src={previewUrl}
@@ -152,6 +153,7 @@ export default function DereverbPage() {
           onPause={() => setIsPreviewing(false)}
           className="hidden"
         />
+        )}
 
         {/* Strength */}
         <div>

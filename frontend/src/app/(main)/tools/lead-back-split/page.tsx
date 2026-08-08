@@ -130,6 +130,7 @@ export default function LeadBackSplitPage() {
           )}
         </div>
 
+        {previewUrl && (
         <audio
           ref={previewRef}
           src={previewUrl}
@@ -137,6 +138,7 @@ export default function LeadBackSplitPage() {
           onPause={() => setIsPreviewing(false)}
           className="hidden"
         />
+        )}
 
         <Button
           size="lg"
