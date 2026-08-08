@@ -297,7 +297,11 @@ export default function EditorPage() {
     return () => {
       cancelAnimationFrame(animRef.current);
       stopMetronome();
-      playbackCtxRef.current?.close();
+      try {
+        if (playbackCtxRef.current?.state !== "closed") {
+          playbackCtxRef.current?.close();
+        }
+      } catch {}
     };
   }, []);
 
