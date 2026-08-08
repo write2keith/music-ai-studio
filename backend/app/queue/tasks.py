@@ -137,15 +137,18 @@ def _run_lyric_transcribe(params: dict) -> dict:
     segments = result.get("segments", [])
     lyrics = []
     for seg in segments:
-        lyrics.append({
-            "start": round(seg["start"], 2),
-            "end": round(seg["end"], 2),
-            "text": seg["text"].strip(),
-            "confidence": round(seg.get("confidence", 0.0), 2),
-        })
+        try:
+            lyrics.append({
+                "start": round(float(seg.get("start", 0)), 2),
+                "end": round(float(seg.get("end", 0)), 2),
+                "text": str(seg.get("text", "")).strip(),
+                "confidence": round(float(seg.get("confidence", 0.0)), 2),
+            })
+        except Exception as parse_err:
+            logger.warning(f"Skipping lyric segment: {parse_err}")
 
-    full_text = result.get("text", "").strip()
-    detected_lang = result.get("language", "en")
+    full_text = str(result.get("text", "")).strip()
+    detected_lang = str(result.get("language", "en"))
 
     logger.info(f"Lyric transcription: {len(lyrics)} segments, lang={detected_lang}")
 

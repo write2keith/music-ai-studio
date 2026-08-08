@@ -58,14 +58,17 @@ export default function LyricsPage() {
     const t = setInterval(async () => {
       attempts++;
       try {
-        const data = await api.tools.lyricTranscribeStatus(jobId);
-        if (data.status === "completed") {
+        const data = await api.tools.lyricTranscribeStatus(jobId) as LyricTranscribeResult & { error?: string };
+        if (data.status === "completed" || (data.status === "failed" && data.full_text)) {
           setLyricResult(data);
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);
+          if (data.status === "failed") {
+            setLyricError(data.error || "Transcription completed with errors");
+          }
         } else if (data.status === "failed") {
-          setLyricError("Transcription failed");
+          setLyricError(data.error || "Transcription failed");
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);
@@ -75,10 +78,11 @@ export default function LyricsPage() {
           setLyricTranscribing(false);
           clearInterval(t);
         }
-      } catch {
-        // Retry on transient errors
-        if (attempts >= 300) {
-          setLyricError("Transcription timed out after 10 minutes");
+      } catch (err) {
+        // Show error after 5 failed attempts (10s) instead of silently retrying
+        if (attempts >= 5) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setLyricError(msg || "Transcription failed");
           setLyricPolling(false);
           setLyricTranscribing(false);
           clearInterval(t);
@@ -214,14 +218,19 @@ export default function LyricsPage() {
         </Button>
 
         {lyricError && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          <div className={cn(
+            "flex items-center gap-2 p-3 rounded-lg text-sm",
+            lyricResult?.full_text
+              ? "bg-amber-500/10 border border-amber-500/20 text-amber-400"
+              : "bg-red-500/10 border border-red-500/20 text-red-400"
+          )}>
             <AlertCircle className="w-4 h-4 shrink-0" />
             {lyricError}
           </div>
         )}
 
         <AnimatePresence>
-          {lyricResult && lyricResult.lyrics.length > 0 && (
+          {lyricResult && (lyricResult.lyrics.length > 0 || lyricResult.full_text) && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}

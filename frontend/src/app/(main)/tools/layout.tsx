@@ -14,6 +14,10 @@ const TOOLS = [
   { href: "/tools/pitch-tempo", label: "Pitch & Tempo", icon: "Pt" },
   { href: "/tools/lyrics", label: "Lyrics", icon: "Ly" },
   { href: "/tools/vocal-coach", label: "Vocal Coach", icon: "Vo" },
+  { href: "/tools/voice-cleaner", label: "Voice Clean", icon: "Vc" },
+  { href: "/tools/lead-back-split", label: "Ld/Bk Split", icon: "Lb" },
+  { href: "/tools/voice-changer", label: "Voice Change", icon: "Vg" },
+  { href: "/tools/dereverb", label: "Dereverb", icon: "Dr" },
 ];
 
 export default function ToolsLayout({ children }: { children: React.ReactNode }) {

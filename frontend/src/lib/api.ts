@@ -286,6 +286,30 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes, tempo }),
       }),
+    voiceClean: (file: File, noiseReduction: number = 0.7) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("noise_reduction", String(noiseReduction));
+      return upload<VoiceCleanResult>("/api/tools/voice-clean", fd);
+    },
+    leadBackSplit: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<LeadBackResult>("/api/tools/lead-back-split", fd);
+    },
+    voiceChange: (file: File, semitones: number = 0, formantShift: number = 0) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("semitones", String(semitones));
+      fd.append("formant_shift", String(formantShift));
+      return upload<VoiceChangeResult>("/api/tools/voice-change", fd);
+    },
+    dereverb: (file: File, strength: number = 0.7) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("strength", String(strength));
+      return upload<DereverbResult>("/api/tools/dereverb", fd);
+    },
   },
 };
 
@@ -446,4 +470,38 @@ export interface CalibrationResponse {
   all_stores: Record<string, { total_corrections: number; accuracy: number; params: Record<string, number>; chord_corrections?: number; chord_accuracy?: number }>;
   chord_corrections: number;
   chord_accuracy: number;
+}
+
+export interface VoiceCleanResult {
+  ok: boolean;
+  url: string;
+  filename: string;
+  duration: number;
+  noise_frames: number;
+}
+
+export interface LeadBackResult {
+  ok: boolean;
+  lead_url: string;
+  backing_url: string;
+  instrumental_url: string;
+  lead_ratio: number;
+  duration: number;
+}
+
+export interface VoiceChangeResult {
+  ok: boolean;
+  url: string;
+  filename: string;
+  duration: number;
+  semitones: number;
+  formant_shift: number;
+}
+
+export interface DereverbResult {
+  ok: boolean;
+  url: string;
+  filename: string;
+  duration: number;
+  strength: number;
 }

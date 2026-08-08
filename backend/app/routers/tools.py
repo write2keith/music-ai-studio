@@ -1218,6 +1218,7 @@ class LyricTranscribeResponse(BaseModel):
     lyrics: list[LyricLine] = []
     full_text: str = ""
     language: str = ""
+    error: str = ""
 
 
 @router.post("/lyric-transcribe", response_model=LyricTranscribeResponse)
@@ -1250,14 +1251,21 @@ async def lyric_transcribe_status(job_id: str):
     job = queue.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.status == JobStatus.FAILED:
-        raise HTTPException(status_code=500, detail=job.error or "Job failed")
 
     resp = LyricTranscribeResponse(
         ok=True,
         job_id=job_id,
         status=job.status,
     )
+
+    if job.status == JobStatus.FAILED:
+        resp.status = "failed"
+        if job.result:
+            r = job.result
+            resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
+            resp.full_text = r.get("full_text", "")
+            resp.language = r.get("language", "")
+        resp.error = job.error
 
     if job.status == JobStatus.COMPLETED and job.result:
         r = job.result
@@ -1554,3 +1562,165 @@ async def midi_export(body: MidiExportRequest):
         filename=filename,
         url=f"/api/audio/midi/{filename}",
     )
+
+
+# ── Voice Cleaner ──────────────────────────────────────────────
+
+class VoiceCleanResponse(BaseModel):
+    ok: bool = True
+    url: str = ""
+    filename: str = ""
+    duration: float = 0.0
+    noise_frames: int = 0
+
+
+@router.post("/voice-clean", response_model=VoiceCleanResponse)
+async def voice_clean(
+    file: UploadFile = File(...),
+    noise_reduction: float = Form(default=0.7, ge=0.0, le=1.0),
+):
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(file.filename).suffix or ".wav"
+        upload_path = upload_dir / f"vc_{uuid.uuid4().hex}{ext}"
+        content = await file.read()
+        upload_path.write_bytes(content)
+
+        from ..services.cleaner import clean_voice
+        result = clean_voice(str(upload_path), noise_reduction)
+
+        filename = Path(result["cleaned_path"]).name
+        return VoiceCleanResponse(
+            ok=True,
+            url=f"/api/audio/edits/{filename}",
+            filename=filename,
+            duration=result["duration"],
+            noise_frames=result["noise_profile_frames"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Lead/Back Vocal Splitter ───────────────────────────────────
+
+class LeadBackResponse(BaseModel):
+    ok: bool = True
+    lead_url: str = ""
+    backing_url: str = ""
+    instrumental_url: str = ""
+    lead_ratio: float = 0.0
+    duration: float = 0.0
+
+
+@router.post("/lead-back-split", response_model=LeadBackResponse)
+async def lead_back_split(
+    file: UploadFile = File(...),
+):
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(file.filename).suffix or ".wav"
+        upload_path = upload_dir / f"lb_{uuid.uuid4().hex}{ext}"
+        content = await file.read()
+        upload_path.write_bytes(content)
+
+        # First separate vocals
+        from ..services.separator import separate as separate_stems
+        stem_result = separate_stems(str(upload_path), model_name="htdemucs")
+        vocals_path = stem_result["stems"].get("vocals")
+        if not vocals_path:
+            raise HTTPException(status_code=400, detail="No vocals found in the audio")
+
+        from ..services.lead_back import split_lead_backing
+        result = split_lead_backing(vocals_path)
+
+        return LeadBackResponse(
+            ok=True,
+            lead_url=f"/api/audio/stems/htdemucs/{Path(result['lead_path']).parent.name}/{Path(result['lead_path']).name}",
+            backing_url=f"/api/audio/stems/htdemucs/{Path(result['backing_path']).parent.name}/{Path(result['backing_path']).name}",
+            instrumental_url=f"/api/audio/stems/htdemucs/{Path(result['instrumental_path']).parent.name}/{Path(result['instrumental_path']).name}",
+            lead_ratio=result["lead_ratio"],
+            duration=result["duration"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Voice Changer ──────────────────────────────────────────────
+
+class VoiceChangeResponse(BaseModel):
+    ok: bool = True
+    url: str = ""
+    filename: str = ""
+    duration: float = 0.0
+    semitones: int = 0
+    formant_shift: float = 0.0
+
+
+@router.post("/voice-change", response_model=VoiceChangeResponse)
+async def voice_change(
+    file: UploadFile = File(...),
+    semitones: int = Form(default=0, ge=-12, le=12),
+    formant_shift: float = Form(default=0.0, ge=-6.0, le=6.0),
+):
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(file.filename).suffix or ".wav"
+        upload_path = upload_dir / f"vg_{uuid.uuid4().hex}{ext}"
+        content = await file.read()
+        upload_path.write_bytes(content)
+
+        from ..services.voice_changer import change_voice
+        result = change_voice(str(upload_path), semitones, formant_shift)
+
+        filename = Path(result["changed_path"]).name
+        return VoiceChangeResponse(
+            ok=True,
+            url=f"/api/audio/edits/{filename}",
+            filename=filename,
+            duration=result["duration"],
+            semitones=result["semitones"],
+            formant_shift=result["formant_shift"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Echo/Reverb Remover ────────────────────────────────────────
+
+class DereverbResponse(BaseModel):
+    ok: bool = True
+    url: str = ""
+    filename: str = ""
+    duration: float = 0.0
+    strength: float = 0.7
+
+
+@router.post("/dereverb", response_model=DereverbResponse)
+async def dereverb(
+    file: UploadFile = File(...),
+    strength: float = Form(default=0.7, ge=0.0, le=1.0),
+):
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(file.filename).suffix or ".wav"
+        upload_path = upload_dir / f"dr_{uuid.uuid4().hex}{ext}"
+        content = await file.read()
+        upload_path.write_bytes(content)
+
+        from ..services.dereverb import remove_reverb
+        result = remove_reverb(str(upload_path), strength)
+
+        filename = Path(result["cleaned_path"]).name
+        return DereverbResponse(
+            ok=True,
+            url=f"/api/audio/edits/{filename}",
+            filename=filename,
+            duration=result["duration"],
+            strength=result["strength"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
