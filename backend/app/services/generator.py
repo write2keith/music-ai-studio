@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import logging
 from pathlib import Path
@@ -94,7 +95,7 @@ def _generate_cloud(prompt: str, duration: int = 10) -> tuple[str, float]:
     if resp.status_code != 200:
         raise RuntimeError(f"HF API error {resp.status_code}: {resp.text[:200]}")
 
-    filename = f"gen_{uuid.uuid4().hex[:12]}.wav"
+    filename = f"{_safe_filename(prompt)}_{uuid.uuid4().hex[:6]}.wav"
     filepath = get_output_dir() / filename
 
     with open(filepath, "wb") as f:
@@ -134,7 +135,7 @@ def _generate_local(prompt: str, duration: int = 10) -> tuple[str, float]:
     audio_data = audio_values[0, 0].cpu().numpy()
     sample_rate = model.config.audio_encoder.sampling_rate
 
-    filename = f"gen_{uuid.uuid4().hex[:12]}.wav"
+    filename = f"{_safe_filename(prompt)}_{uuid.uuid4().hex[:6]}.wav"
     filepath = get_output_dir() / filename
     scipy.io.wavfile.write(str(filepath), sample_rate, audio_data)
 
@@ -142,6 +143,11 @@ def _generate_local(prompt: str, duration: int = 10) -> tuple[str, float]:
     logger.info(f"Generated {actual_duration:.1f}s of audio -> {filepath}")
 
     return str(filepath), actual_duration
+
+
+def _safe_filename(text: str, max_len: int = 60) -> str:
+    safe = re.sub(r'[<>:"/\\|?*\s]+', '_', text).strip('_').lower()[:max_len]
+    return safe.rstrip('.') or "generated"
 
 
 def generate(prompt: str, duration: int = 10) -> tuple[str, float]:

@@ -61,6 +61,7 @@ async def download_youtube(body: YouTubeRequest):
         raise HTTPException(status_code=400, detail="URL is required")
 
     import yt_dlp
+    import re
 
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -88,7 +89,18 @@ async def download_youtube(body: YouTubeRequest):
         if not candidates:
             raise HTTPException(status_code=500, detail="Download produced no file")
 
-        filename = candidates[0].name
+        dl_path = candidates[0]
+        dl_ext = dl_path.suffix
+
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip().rstrip('.')[:80]
+        safe_name = f"{safe_title}{dl_ext}"
+        final_path = output_dir / safe_name
+        counter = 1
+        while final_path.exists():
+            final_path = output_dir / f"{safe_title}_{counter}{dl_ext}"
+            counter += 1
+        dl_path.rename(final_path)
+        filename = final_path.name
         logger.info(f"YouTube: '{title}' by {uploader} -> {filename}")
 
         return YouTubeResponse(
