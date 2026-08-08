@@ -773,10 +773,11 @@ async def vocal_prep(
     save_path.write_bytes(content)
 
     from ..queue.worker import queue
-    job_id = queue.enqueue(
+    job = queue.submit(
         "vocal_prep",
         {"audio_path": str(save_path), "model": "htdemucs"},
     )
+    job_id = job.id
     logger.info(f"Vocal prep job {job_id} enqueued for {save_path}")
 
     return VocalPrepResponse(ok=True, job_id=job_id, status="queued")
@@ -837,17 +838,17 @@ async def vocal_remove(file: UploadFile = File(...)):
     save_path = output_dir / f"vocal_rm_{uuid.uuid4().hex[:12]}{ext}"
     save_path.write_bytes(content)
 
-    job_id = queue.enqueue(
+    job = queue.submit(
         "vocal_remove",
         {"audio_path": str(save_path), "model": "htdemucs"},
     )
-    logger.info(f"Vocal remove job {job_id} enqueued")
+    logger.info(f"Vocal remove job {job.id} enqueued")
 
     return VocalRemoveResponse(
         ok=True,
-        instrumental_url=f"/api/tools/vocal-remove/{job_id}/instrumental",
-        vocals_url=f"/api/tools/vocal-remove/{job_id}/vocals",
-        filename=f"instrumental_{job_id}.wav",
+        instrumental_url=f"/api/tools/vocal-remove/{job.id}/instrumental",
+        vocals_url=f"/api/tools/vocal-remove/{job.id}/vocals",
+        filename=f"instrumental_{job.id}.wav",
     )
 
 
@@ -1233,13 +1234,13 @@ async def lyric_transcribe(
     save_path.write_bytes(content)
 
     from ..queue.worker import queue
-    job_id = queue.enqueue(
+    job = queue.submit(
         "lyric_transcribe",
         {"audio_path": str(save_path), "language": language},
     )
-    logger.info(f"Lyric transcribe job {job_id} enqueued")
+    logger.info(f"Lyric transcribe job {job.id} enqueued")
 
-    return LyricTranscribeResponse(ok=True, job_id=job_id, status="queued")
+    return LyricTranscribeResponse(ok=True, job_id=job.id, status="queued")
 
 
 @router.get("/lyric-transcribe/{job_id}", response_model=LyricTranscribeResponse)
