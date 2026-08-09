@@ -39,13 +39,16 @@ def clean_voice(audio_path: str, noise_reduction: float = 0.7) -> dict:
         noise_profile /= noise_count
 
     # Spectral subtraction with Wiener-like gain
+    window = np.hanning(n_fft)
+    window_sq = window ** 2
     cleaned = np.zeros_like(audio)
+    window_sum = np.zeros_like(audio)
     for i in range(num_frames):
         start = i * hop
         segment = audio[start:start + n_fft]
         if len(segment) < n_fft:
             break
-        windowed = segment * np.hanning(n_fft)
+        windowed = segment * window
         spec = np.fft.rfft(windowed)
         mag = np.abs(spec)
         phase = np.angle(spec)
@@ -54,7 +57,10 @@ def clean_voice(audio_path: str, noise_reduction: float = 0.7) -> dict:
         gain = np.clip(gain, 0.01, 1.0)
         cleaned_spec = mag * gain * np.exp(1j * phase)
         cleaned_frame = np.fft.irfft(cleaned_spec)
-        cleaned[start:start + n_fft] += cleaned_frame * np.hanning(n_fft)
+        cleaned[start:start + n_fft] += cleaned_frame * window
+        window_sum[start:start + n_fft] += window_sq
+
+    cleaned /= np.maximum(window_sum, 1e-10)
 
     peak = np.max(np.abs(cleaned))
     if peak > 0:

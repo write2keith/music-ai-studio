@@ -46,7 +46,7 @@ def split_lead_backing(vocals_path: str) -> dict:
 
     lead = audio * lead_mask
     backing = audio * backing_mask
-    instrumental = audio * (1.0 - lead_mask - backing_mask + 0.3)  # residual/mix
+    instrumental = audio - lead - backing
 
     base = Path(vocals_path).stem
     out_dir = Path(settings.STEMS_DIR) / f"leadback_{base}"

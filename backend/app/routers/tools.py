@@ -62,6 +62,11 @@ def _do_extract(url: str, ydl_opts: dict) -> dict:
         return ydl.extract_info(url, download=True)
 
 
+async def _run_blocking(fn, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
+
+
 @router.post("/youtube", response_model=YouTubeResponse)
 async def download_youtube(body: YouTubeRequest):
     url = body.url.strip()
@@ -1611,7 +1616,7 @@ async def voice_clean(
         upload_path.write_bytes(content)
 
         from ..services.cleaner import clean_voice
-        result = clean_voice(str(upload_path), noise_reduction)
+        result = await _run_blocking(clean_voice, str(upload_path), noise_reduction)
 
         filename = Path(result["cleaned_path"]).name
         return VoiceCleanResponse(
@@ -1650,13 +1655,13 @@ async def lead_back_split(
 
         # First separate vocals
         from ..services.separator import separate as separate_stems
-        stem_result = separate_stems(str(upload_path), model_name="htdemucs")
+        stem_result = await _run_blocking(separate_stems, str(upload_path), model_name="htdemucs")
         vocals_path = stem_result["stems"].get("vocals")
         if not vocals_path:
             raise HTTPException(status_code=400, detail="No vocals found in the audio")
 
         from ..services.lead_back import split_lead_backing
-        result = split_lead_backing(vocals_path)
+        result = await _run_blocking(split_lead_backing, vocals_path)
 
         return LeadBackResponse(
             ok=True,
@@ -1696,7 +1701,7 @@ async def voice_change(
         upload_path.write_bytes(content)
 
         from ..services.voice_changer import change_voice
-        result = change_voice(str(upload_path), semitones, formant_shift)
+        result = await _run_blocking(change_voice, str(upload_path), semitones, formant_shift)
 
         filename = Path(result["changed_path"]).name
         return VoiceChangeResponse(
@@ -1735,7 +1740,7 @@ async def dereverb(
         upload_path.write_bytes(content)
 
         from ..services.dereverb import remove_reverb
-        result = remove_reverb(str(upload_path), strength)
+        result = await _run_blocking(remove_reverb, str(upload_path), strength)
 
         filename = Path(result["cleaned_path"]).name
         return DereverbResponse(

@@ -88,13 +88,14 @@ async def get_generation_status(job_id: str):
 
     if job.status == JobStatus.COMPLETED and job.result:
         filepath = job.result.get("filepath", "")
-        filename = Path(filepath).name
-        response.result = AudioResponse(
-            url=f"/api/audio/{filename}",
-            filename=filename,
-            duration=job.result.get("duration"),
-        )
-        track_store.complete(job_id, filepath=str(filepath), filename=filename)
+        if filepath:
+            filename = Path(filepath).name
+            response.result = AudioResponse(
+                url=f"/api/audio/{filename}",
+                filename=filename,
+                duration=job.result.get("duration"),
+            )
+            track_store.complete(job_id, filepath=str(filepath), filename=filename)
 
     return response
 
@@ -153,14 +154,18 @@ async def get_separation_status(job_id: str):
     )
 
     if job.status == JobStatus.COMPLETED and job.result:
+        stems = job.result.get("stems", {})
+        model = job.result.get("model", "htdemucs")
+        source = job.result.get("source", "")
+        source_stem = Path(source).stem if source else "unknown"
         stem_urls = {}
-        for name, path in job.result.get("stems", {}).items():
+        for name, path in stems.items():
             stem_name = Path(path).name
             stem_urls[name] = (
-                f"/api/audio/stems/{job.result['model']}/"
-                f"{Path(job.result['source']).stem}/{stem_name}"
+                f"/api/audio/stems/{model}/"
+                f"{source_stem}/{stem_name}"
             )
-        response.result = {"model": job.result["model"], "stems": stem_urls}
+        response.result = {"model": model, "stems": stem_urls}
 
         mp3_stems = job.result.get("mp3_stems", {})
         if mp3_stems:

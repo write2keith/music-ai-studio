@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..config import get_settings
@@ -89,7 +89,7 @@ async def update_generation_settings(body: GenerationSettings, request: Request)
 
     valid_providers = {p["id"] for p in AVAILABLE_PROVIDERS} | {"auto"}
     if body.provider not in valid_providers:
-        return {"error": f"Unknown provider: {body.provider}"}, 400
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {body.provider}")
 
     _active_provider = body.provider
     _active_model = body.model_id if body.model_id else ""
@@ -175,7 +175,7 @@ async def update_separation_settings(body: SeparationSettings):
 
     valid_modes = {p["id"] for p in SEPARATION_PROVIDERS}
     if body.mode not in valid_modes:
-        return {"error": f"Unknown mode: {body.mode}"}, 400
+        raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
 
     _active_sep_mode = body.mode
     if body.hf_token:
