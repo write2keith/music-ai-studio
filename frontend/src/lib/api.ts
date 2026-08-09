@@ -409,6 +409,8 @@ interface VocalPrepResult {
   status: string;
   pitch_data: PitchPoint[];
   vocals_url: string;
+  backing_url: string;
+  instrumental_url: string;
   duration_secs: number;
 }
 
