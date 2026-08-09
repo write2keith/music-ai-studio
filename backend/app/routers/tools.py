@@ -252,18 +252,20 @@ def _do_compress(
     out_filename = f"compressed_{uuid.uuid4().hex[:12]}.{out_ext}"
     out_path = output_dir / out_filename
 
-    wav.write(str(out_path), sample_rate, data)
+    temp_wav = output_dir / f"compress_tmp_{uuid.uuid4().hex[:12]}.wav"
+    wav.write(str(temp_wav), sample_rate, data)
 
     if output_format == "mp3":
         try:
             from pydub import AudioSegment
-            audio = AudioSegment.from_wav(str(out_path))
-            mp3_path = output_dir / out_filename
-            audio.export(str(mp3_path), format="mp3", bitrate="128k")
-            out_path.unlink(missing_ok=True)
-            out_path = mp3_path
+            audio = AudioSegment.from_wav(str(temp_wav))
+            audio.export(str(out_path), format="mp3", bitrate="128k")
+            temp_wav.unlink(missing_ok=True)
         except Exception as e:
             logger.warning(f"MP3 export failed, falling back to WAV: {e}")
+            temp_wav.rename(out_path)
+    else:
+        temp_wav.rename(out_path)
 
     compressed_size = out_path.stat().st_size
 
