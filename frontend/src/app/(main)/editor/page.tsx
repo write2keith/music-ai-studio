@@ -41,6 +41,12 @@ function createTrack(id: string, name: string, color: string): TrackData {
     reverbSend: 0,
     duration: 0,
     startOffset: 0,
+    trimStart: 0,
+    trimEnd: 0,
+    volumeEnvelope: [],
+    panEnvelope: [],
+    showAutomation: false,
+    automationType: "volume",
   };
 }
 
@@ -61,6 +67,8 @@ export default function EditorPage() {
   const chunksRef = useRef<Blob[]>([]);
   const recordingTrackRef = useRef<string>("");
   const wasPlayingRef = useRef(false);
+  const monitorSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const monitorGainRef = useRef<GainNode | null>(null);
 
   const clockRef = useRef<MasterClock | null>(null);
   const metronomeIntervalRef = useRef<number | null>(null);
@@ -122,6 +130,7 @@ export default function EditorPage() {
     return () => {
       if (metronomeIntervalRef.current) clearInterval(metronomeIntervalRef.current);
       metronomeCtxRef.current?.close();
+      stopMonitor();
       clockRef.current?.destroy();
     };
   }, []);
@@ -163,6 +172,17 @@ export default function EditorPage() {
     metronomeCtxRef.current = null;
   }
 
+  function stopMonitor() {
+    if (monitorSourceRef.current) {
+      try { monitorSourceRef.current.disconnect(); } catch {}
+      monitorSourceRef.current = null;
+    }
+    if (monitorGainRef.current) {
+      try { monitorGainRef.current.disconnect(); } catch {}
+      monitorGainRef.current = null;
+    }
+  }
+
   function playAll() {
     const clock = getClock();
     if (clock.ctx.state === "suspended") clock.ctx.resume();
@@ -177,6 +197,7 @@ export default function EditorPage() {
     setIsPlaying(false);
     setIsRecording(false);
     stopMetronome();
+    stopMonitor();
     mediaRecorderRef.current?.stop();
     setTracks((prev) =>
       prev.map((t) => ({ ...t, isRecording: false, isArmed: false })),
@@ -238,7 +259,18 @@ export default function EditorPage() {
       recorder.start();
 
       const clock = getClock();
+      clock.ensureEffects();
       if (clock.ctx.state === "suspended") clock.ctx.resume();
+
+      // Low-latency monitoring: feed mic directly to output at low level
+      stopMonitor();
+      const monSource = clock.ctx.createMediaStreamSource(stream);
+      const monGain = clock.ctx.createGain();
+      monGain.gain.value = 0.15;
+      monSource.connect(monGain);
+      monGain.connect(clock.ctx.destination);
+      monitorSourceRef.current = monSource;
+      monitorGainRef.current = monGain;
 
       setIsRecording(true);
       setIsPlaying(true);
@@ -772,6 +804,43 @@ export default function EditorPage() {
                   }
                   onFileLoad={(file) => loadFileToTrack(track.id, file)}
                   onOffsetChange={(offset) => setTrackOffset(track.id, offset)}
+                  onTrimChange={(trimStart, trimEnd) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, trimStart, trimEnd } : t,
+                      ),
+                    )
+                  }
+                  onVolumeEnvelopeChange={(pts) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, volumeEnvelope: pts } : t,
+                      ),
+                    )
+                  }
+                  onPanEnvelopeChange={(pts) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, panEnvelope: pts } : t,
+                      ),
+                    )
+                  }
+                  onAutomationToggle={() =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, showAutomation: !t.showAutomation } : t,
+                      ),
+                    )
+                  }
+                  onAutomationTypeChange={(type) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, automationType: type } : t,
+                      ),
+                    )
+                  }
+                  bpm={bpm}
+                  maxDuration={maxDuration}
                 />
               </div>
               <button
