@@ -453,15 +453,31 @@ export interface LyricLine {
   confidence: number;
 }
 
+export interface LyricWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
+export interface LyricLineDetailed {
+  start: number;
+  end: number;
+  words: LyricWord[];
+}
+
 export interface LyricTranscribeResult {
   ok: boolean;
   job_id: string;
   status: string;
   lyrics: LyricLine[];
+  lines: LyricLineDetailed[];
   full_text: string;
   language: string;
+  lang_code: string;
   txt_path: string;
   lrc_path: string;
+  duration_secs: number;
+  word_count: number;
 }
 
 export interface TabNote {

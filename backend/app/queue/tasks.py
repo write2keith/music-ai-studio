@@ -104,75 +104,10 @@ def _run_vocal_remove(params: dict) -> dict:
 
 
 def _run_lyric_transcribe(params: dict) -> dict:
-    try:
-        import whisper
-    except ImportError:
-        import openai_whisper as whisper
-    from pathlib import Path
+    from ..services.lyrics import transcribe_lyrics
 
     audio_path = params["audio_path"]
     lang = params.get("language", "auto")
 
-    logger.info(f"Lyric transcribe: separating vocals from {audio_path}...")
-    try:
-        stem_result = separate_stems(audio_path=audio_path, model_name="htdemucs")
-        vocals_path = stem_result["stems"].get("vocals")
-        if not vocals_path:
-            logger.warning("No vocals stem produced, falling back to original audio")
-            vocals_path = audio_path
-        else:
-            logger.info(f"Vocals separated: {vocals_path}")
-    except Exception as e:
-        logger.warning(f"Vocal separation failed ({e}), using original audio")
-        vocals_path = audio_path
-
-    whisper_lang = None if lang == "auto" else lang
-
-    model = whisper.load_model("base")
-    result = model.transcribe(
-        str(vocals_path),
-        language=whisper_lang,
-        verbose=False,
-        word_timestamps=True,
-        condition_on_previous_text=False,
-    )
-
-    segments = result.get("segments", [])
-    lyrics = []
-    for seg in segments:
-        try:
-            lyrics.append({
-                "start": round(float(seg.get("start", 0)), 2),
-                "end": round(float(seg.get("end", 0)), 2),
-                "text": str(seg.get("text", "")).strip(),
-                "confidence": round(float(seg.get("confidence", 0.0)), 2),
-            })
-        except Exception as parse_err:
-            logger.warning(f"Skipping lyric segment: {parse_err}")
-
-    full_text = str(result.get("text", "")).strip()
-    detected_lang = str(result.get("language", "en"))
-
-    logger.info(f"Lyric transcription: {len(lyrics)} segments, lang={detected_lang}")
-
-    lyrics_dir = Path("output/lyrics")
-    lyrics_dir.mkdir(parents=True, exist_ok=True)
-    audio_stem = Path(audio_path).stem
-    txt_path = lyrics_dir / f"{audio_stem}_lyrics.txt"
-    lrc_path = lyrics_dir / f"{audio_stem}_lyrics.lrc"
-    with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(full_text + "\n")
-    with open(lrc_path, "w", encoding="utf-8") as f:
-        for seg in lyrics:
-            start_m = int(seg["start"] // 60)
-            start_s = seg["start"] % 60
-            f.write(f"[{start_m:02d}:{start_s:05.2f}] {seg['text']}\n")
-    logger.info(f"Lyrics saved: {txt_path}, {lrc_path}")
-
-    return {
-        "lyrics": lyrics,
-        "full_text": full_text,
-        "language": detected_lang,
-        "txt_path": str(txt_path),
-        "lrc_path": str(lrc_path),
-    }
+    logger.info(f"Lyric transcribe: {audio_path}, language={lang}")
+    return transcribe_lyrics(str(audio_path), language=lang)

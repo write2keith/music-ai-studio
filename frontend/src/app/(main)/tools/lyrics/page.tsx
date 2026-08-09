@@ -7,12 +7,13 @@ import {
   Loader2,
   AlertCircle,
   Mic,
-  Upload,
-  Check,
   Music,
   FileAudio,
   Play,
   Pause,
+  SkipBack,
+  SkipForward,
+  Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,27 +31,53 @@ export default function LyricsPage() {
   const lyricPollId = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [lyricAudioUrl, setLyricAudioUrl] = useState<string>("");
-  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [editingLine, setEditingLine] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editedLines, setEditedLines] = useState<Record<number, string>>({});
+  const rafRef = useRef<number>(0);
+  const linesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const handleFileSelect = useCallback((f: File) => {
     if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
     setLyricFile(f);
     setLyricResult(null);
     setLyricError("");
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setEditedLines({});
     const url = URL.createObjectURL(f);
     setLyricAudioUrl(url);
   }, [lyricAudioUrl]);
 
-  const togglePreview = useCallback(() => {
+  const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
       audio.play();
-      setIsPreviewing(true);
+      setIsPlaying(true);
     } else {
       audio.pause();
-      setIsPreviewing(false);
+      setIsPlaying(false);
     }
+  }, []);
+
+  const skipTime = useCallback((delta: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const next = Math.max(0, Math.min(duration, audio.currentTime + delta));
+    audio.currentTime = next;
+    setCurrentTime(next);
+  }, [duration]);
+
+  const seekTo = useCallback((time: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = time;
+    setCurrentTime(time);
   }, []);
 
   const pollLyrics = useCallback((jobId: string) => {
@@ -79,7 +106,6 @@ export default function LyricsPage() {
           clearInterval(t);
         }
       } catch (err) {
-        // Show error after 5 failed attempts (10s) instead of silently retrying
         if (attempts >= 5) {
           const msg = err instanceof Error ? err.message : String(err);
           setLyricError(msg || "Transcription failed");
@@ -112,8 +138,58 @@ export default function LyricsPage() {
     return () => {
       if (lyricPollId.current) clearInterval(lyricPollId.current);
       if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [lyricAudioUrl]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => {
+      if (!audio) return;
+      rafRef.current = requestAnimationFrame(() => {
+        setCurrentTime(audio.currentTime);
+      });
+    };
+    const onLoadedMeta = () => setDuration(audio.duration || 0);
+    const onEnded = () => setIsPlaying(false);
+    const onPause = () => setIsPlaying(false);
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoadedMeta);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("pause", onPause);
+
+    return () => {
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoadedMeta);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("pause", onPause);
+    };
+  }, [lyricAudioUrl]);
+
+  const activeLineIndex = (() => {
+    if (!lyricResult?.lines?.length) return -1;
+    const lines = lyricResult.lines;
+    for (let i = 0; i < lines.length; i++) {
+      if (currentTime < lines[i].start) return Math.max(0, i - 1);
+    }
+    return lines.length - 1;
+  })();
+
+  useEffect(() => {
+    if (activeLineIndex < 0 || !linesContainerRef.current) return;
+    const activeEl = linesContainerRef.current.querySelector(`[data-line-idx="${activeLineIndex}"]`);
+    if (activeEl) {
+      const container = linesContainerRef.current;
+      const rect = activeEl.getBoundingClientRect();
+      const cRect = container.getBoundingClientRect();
+      if (rect.top < cRect.top || rect.bottom > cRect.bottom) {
+        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [activeLineIndex]);
 
   const formatTimestamp = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -122,20 +198,35 @@ export default function LyricsPage() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(2, "0")}`;
   };
 
+  const startEdit = (lineIdx: number, lineText: string) => {
+    setEditingLine(lineIdx);
+    setEditText(editedLines[lineIdx] ?? lineText);
+  };
+
+  const commitEdit = (lineIdx: number) => {
+    if (editText.trim()) {
+      setEditedLines((prev) => ({ ...prev, [lineIdx]: editText.trim() }));
+    }
+    setEditingLine(null);
+  };
+
+  const allLines = lyricResult?.lines ?? [];
+
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <div className="pt-6 border-t border-daw-border">
         <h2 className="text-lg font-bold text-daw-text flex items-center gap-2">
           <Mic className="w-5 h-5 text-emerald-400" />
           Lyric Transcription
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
-          Auto-transcribe lyrics from any track using Whisper speech-to-text.
-          Upload a separated vocal stem or a full song (vocals auto-separated).
+          Auto-transcribe lyrics with word-level timestamps. VAD strips silence, Whisper generates
+          word-aligned lyrics for karaoke sync. Click any word to jump to that moment.
         </p>
       </div>
 
       <div className="glass rounded-xl p-5 space-y-4">
+        {/* Drop zone */}
         <div
           onDrop={(e) => {
             e.preventDefault();
@@ -166,10 +257,10 @@ export default function LyricsPage() {
           {lyricFile ? (
             <div className="flex items-center justify-center gap-3">
               <button
-                onClick={(e) => { e.stopPropagation(); togglePreview(); }}
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
                 className="p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
               >
-                {isPreviewing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
+                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
               </button>
               <FileAudio className="w-5 h-5 text-daw-green" />
               <span className="text-sm font-medium">{lyricFile.name}</span>
@@ -189,13 +280,7 @@ export default function LyricsPage() {
         </div>
 
         {lyricAudioUrl && (
-          <audio
-            ref={audioRef}
-            src={lyricAudioUrl}
-            onEnded={() => setIsPreviewing(false)}
-            onPause={() => setIsPreviewing(false)}
-            className="hidden"
-          />
+          <audio ref={audioRef} src={lyricAudioUrl} className="hidden" />
         )}
 
         <Button
@@ -230,20 +315,24 @@ export default function LyricsPage() {
         )}
 
         <AnimatePresence>
-          {lyricResult && (lyricResult.lyrics.length > 0 || lyricResult.full_text) && (
+          {lyricResult && allLines.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              className="space-y-3 border border-emerald-400/20 rounded-xl p-4"
+              className="space-y-3"
             >
+              {/* Header + download */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="green">
-                    {lyricResult.lyrics.length} lines
-                  </Badge>
+                  <Badge variant="green">{allLines.length} lines</Badge>
+                  <span className="text-xs text-daw-text-dim">
+                    {lyricResult.word_count ?? 0} words
+                  </span>
                   {lyricResult.language && (
-                    <span className="text-xs text-daw-text-dim">Language: {lyricResult.language}</span>
+                    <span className="text-xs text-daw-text-dim">
+                      {lyricResult.language}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -255,8 +344,8 @@ export default function LyricsPage() {
                         a.download = "lyrics.txt";
                         a.click();
                       } else {
-                        const text = lyricResult.full_text || lyricResult.lyrics
-                          .map((l: { start: number; text: string }) => `[${formatTimestamp(l.start)}]${l.text}`)
+                        const text = allLines
+                          .map((line) => line.words.map((w) => w.word).join(" "))
                           .join("\n");
                         const blob = new Blob([text], { type: "text/plain" });
                         const a = document.createElement("a");
@@ -287,26 +376,144 @@ export default function LyricsPage() {
                   )}
                 </div>
               </div>
-              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
-                {lyricResult.lyrics.map((line, i: number) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3 px-3 py-1.5 rounded-md bg-daw-surface-3/50 hover:bg-daw-surface-3/80 transition-colors text-xs"
-                  >
-                    <span className="w-14 text-daw-text-dim tabular-nums shrink-0 pt-0.5">
-                      {line.start.toFixed(1)}s
-                    </span>
-                    <span className="flex-1 text-daw-text">{line.text}</span>
-                    <span className="text-[10px] text-daw-text-dim shrink-0">
-                      {Math.round(line.confidence * 100)}%
-                    </span>
-                  </div>
-                ))}
+
+              {/* Audio transport bar */}
+              <div className="flex items-center gap-3 p-2 rounded-lg bg-daw-surface-2/60 border border-daw-border">
+                <button
+                  onClick={() => skipTime(-5)}
+                  className="p-1.5 rounded text-daw-text-dim hover:text-daw-text hover:bg-daw-surface-3 transition-colors"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={togglePlay}
+                  className={cn(
+                    "p-1.5 rounded-full transition-colors",
+                    isPlaying
+                      ? "text-cyan-400 bg-cyan-400/10 hover:bg-cyan-400/20"
+                      : "text-daw-text hover:text-cyan-400 hover:bg-cyan-400/10"
+                  )}
+                >
+                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                </button>
+                <button
+                  onClick={() => skipTime(5)}
+                  className="p-1.5 rounded text-daw-text-dim hover:text-daw-text hover:bg-daw-surface-3 transition-colors"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+                <span className="text-[11px] text-daw-text-dim tabular-nums w-20 text-center">
+                  {formatTimestamp(currentTime)} / {formatTimestamp(duration || lyricResult.duration_secs || 0)}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || lyricResult.duration_secs || 100}
+                  step={0.1}
+                  value={currentTime}
+                  onChange={(e) => seekTo(Number(e.target.value))}
+                  className="flex-1 h-1 accent-cyan-400 cursor-pointer"
+                />
+                <Maximize2 className="w-3.5 h-3.5 text-daw-text-dim" />
               </div>
+
+              {/* Karaoke word viewer */}
+              <div
+                ref={linesContainerRef}
+                className="max-h-[400px] overflow-y-auto space-y-1.5 pr-1 rounded-xl border border-emerald-400/20 p-3"
+              >
+                {allLines.map((line, lineIdx) => {
+                  const isActive = lineIdx === activeLineIndex;
+                  const lineText = editedLines[lineIdx] ?? line.words.map((w) => w.word).join(" ");
+                  const isEditing = editingLine === lineIdx;
+
+                  return (
+                    <div
+                      key={lineIdx}
+                      data-line-idx={lineIdx}
+                      onClick={() => seekTo(line.start)}
+                      className={cn(
+                        "flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer transition-all duration-150",
+                        isActive
+                          ? "bg-cyan-400/10 border border-cyan-400/30 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                          : "bg-daw-surface-3/40 hover:bg-daw-surface-3/80 border border-transparent"
+                      )}
+                    >
+                      <span className="w-14 text-[11px] text-daw-text-dim tabular-nums shrink-0 pt-0.5">
+                        {formatTimestamp(line.start).slice(0, 5)}
+                      </span>
+
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          onBlur={() => commitEdit(lineIdx)}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitEdit(lineIdx); if (e.key === "Escape") setEditingLine(null); }}
+                          className="flex-1 bg-daw-surface-2 border border-cyan-400/40 rounded px-2 py-0.5 text-xs text-daw-text outline-none"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="flex-1 text-xs flex flex-wrap gap-x-1.5">
+                          {line.words.map((word, wIdx) => {
+                            const isWordActive =
+                              isPlaying &&
+                              currentTime >= word.start &&
+                              currentTime < word.end;
+
+                            let colorFraction = 0;
+                            if (isWordActive) {
+                              const dur = word.end - word.start || 0.01;
+                              colorFraction = Math.min(1, (currentTime - word.start) / dur);
+                            } else if (currentTime >= word.end) {
+                              colorFraction = 1;
+                            }
+
+                            return (
+                              <span
+                                key={wIdx}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  seekTo(word.start);
+                                }}
+                                className={cn(
+                                  "relative cursor-pointer rounded-sm px-0.5 transition-colors duration-75",
+                                  isWordActive ? "text-white font-medium" : "text-daw-text/80",
+                                )}
+                                style={{
+                                  background: `linear-gradient(90deg, rgba(34,211,238,0.35) ${colorFraction * 100}%, transparent ${colorFraction * 100}%)`,
+                                }}
+                              >
+                                {word.word}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEdit(lineIdx, lineText);
+                          }}
+                          className="text-[10px] text-daw-text-dim hover:text-daw-text transition-colors px-1 py-0.5"
+                          title="Edit line"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Full text fallback */}
               {lyricResult.full_text && (
-                <div className="p-3 rounded-lg bg-daw-surface-2/50 text-sm text-daw-text leading-relaxed italic border-l-2 border-emerald-400/30">
-                  {lyricResult.full_text}
-                </div>
+                <details className="p-3 rounded-lg bg-daw-surface-2/50 text-sm text-daw-text leading-relaxed border-l-2 border-emerald-400/30">
+                  <summary className="cursor-pointer text-xs text-daw-text-dim">Full text</summary>
+                  <p className="mt-2 italic whitespace-pre-wrap">{lyricResult.full_text}</p>
+                </details>
               )}
             </motion.div>
           )}

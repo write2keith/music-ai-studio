@@ -1287,6 +1287,18 @@ def _do_pitch_tempo(tmp_path: str, pitch_semitones: float, tempo_factor: float) 
 
 # ── Lyric Transcription ───────────────────────────────────────
 
+class LyricWord(BaseModel):
+    word: str
+    start: float
+    end: float
+
+
+class LyricLineDetailed(BaseModel):
+    start: float
+    end: float
+    words: list[LyricWord]
+
+
 class LyricLine(BaseModel):
     start: float
     end: float
@@ -1299,11 +1311,14 @@ class LyricTranscribeResponse(BaseModel):
     job_id: str = ""
     status: str = "queued"
     lyrics: list[LyricLine] = []
+    lines: list[LyricLineDetailed] = []
     full_text: str = ""
     language: str = ""
+    lang_code: str = ""
     error: str = ""
     txt_path: str = ""
     lrc_path: str = ""
+    duration_secs: float = 0
 
 
 @router.post("/lyric-transcribe", response_model=LyricTranscribeResponse)
@@ -1348,19 +1363,25 @@ async def lyric_transcribe_status(job_id: str):
         if job.result:
             r = job.result
             resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
+            resp.lines = [LyricLineDetailed(**ln) for ln in r.get("lines", [])]
             resp.full_text = r.get("full_text", "")
             resp.language = r.get("language", "")
+            resp.lang_code = r.get("lang_code", "")
             resp.txt_path = r.get("txt_path", "")
             resp.lrc_path = r.get("lrc_path", "")
+            resp.duration_secs = r.get("duration_secs", 0)
         resp.error = job.error
 
     if job.status == JobStatus.COMPLETED and job.result:
         r = job.result
         resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
+        resp.lines = [LyricLineDetailed(**ln) for ln in r.get("lines", [])]
         resp.full_text = r.get("full_text", "")
         resp.language = r.get("language", "")
+        resp.lang_code = r.get("lang_code", "")
         resp.txt_path = r.get("txt_path", "")
         resp.lrc_path = r.get("lrc_path", "")
+        resp.duration_secs = r.get("duration_secs", 0)
 
     return resp
 
