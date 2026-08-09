@@ -800,6 +800,7 @@ class VocalPrepResponse(BaseModel):
     vocals_url: str = ""
     backing_url: str = ""
     instrumental_url: str = ""
+    all_stems: dict = {}
     duration_secs: float = 0.0
 
 
@@ -856,6 +857,13 @@ async def vocal_prep_status(job_id: str):
             resp.vocals_url = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(vocals_path).name}"
 
         backing_stems = result.get("backing_stems", {})
+        all_stems: dict = {}
+        if vocals_path:
+            all_stems["vocals"] = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(vocals_path).name}"
+        for stem_name, stem_path in backing_stems.items():
+            all_stems[stem_name] = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(stem_path).name}"
+        resp.all_stems = all_stems
+
         other_keys = [k for k in backing_stems if k != "vocals"]
         if other_keys:
             first_other = other_keys[0]

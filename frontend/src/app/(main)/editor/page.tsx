@@ -2,10 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, Square, Plus, Mic, Download, Trash2 } from "lucide-react";
+import { Play, Pause, Square, Plus, Mic, Download, Trash2, Loader2, Music, Zap } from "lucide-react";
 import { TrackRow, type TrackData } from "@/components/studio/TrackRow";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MasterClock } from "@/lib/master-clock";
+import { useStemSeparator } from "@/hooks/use-stem-separator";
 
 function MetronomeIcon(props: any) {
   return (
@@ -35,6 +37,7 @@ function createTrack(id: string, name: string, color: string): TrackData {
     muted: false,
     solo: false,
     volume: 0.8,
+    pan: 0,
     duration: 0,
     startOffset: 0,
   };
@@ -43,39 +46,57 @@ function createTrack(id: string, name: string, color: string): TrackData {
 export default function EditorPage() {
   const [tracks, setTracks] = useState<TrackData[]>([
     createTrack("1", "Vocals", "rose"),
-    createTrack("2", "Guitar", "cyan"),
+    createTrack("2", "Guitar", "yellow"),
     createTrack("3", "Drums", "green"),
-    createTrack("4", "Bass", "violet"),
+    createTrack("4", "Bass", "cyan"),
   ]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [playheadTime, setPlayheadTime] = useState(0);
   const [bpm, setBpm] = useState(120);
-  const playheadRef = useRef<number>(0);
-  const seekVersionRef = useRef<number>(0);
+  const seekVersionRef = useRef(0);
   const [seekVersion, setSeekVersion] = useState(0);
-  const animRef = useRef<number>(0);
-  const startRef = useRef<number>(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingTrackRef = useRef<string>("");
-  const playbackCtxRef = useRef<AudioContext | null>(null);
   const wasPlayingRef = useRef(false);
 
-  function getPlaybackCtx(): AudioContext | null {
-    if (typeof window === "undefined") return null;
-    if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
-      playbackCtxRef.current = new AudioContext();
-    }
-    return playbackCtxRef.current;
+  const clockRef = useRef<MasterClock | null>(null);
+  const metronomeIntervalRef = useRef<number | null>(null);
+  const metronomeCtxRef = useRef<AudioContext | null>(null);
+  const beatCountRef = useRef(0);
+  const [metronomeOn, setMetronomeOn] = useState(false);
+
+  const { job: stemJob, separate, getTrackAssignments } = useStemSeparator();
+
+  function getClock(): MasterClock {
+    if (!clockRef.current) clockRef.current = MasterClock.instance;
+    return clockRef.current;
   }
 
   const maxDuration = Math.max(...tracks.map((t) => t.startOffset + t.duration), 10);
 
-  const [metronomeOn, setMetronomeOn] = useState(false);
-  const metronomeCtxRef = useRef<AudioContext | null>(null);
-  const metronomeIntervalRef = useRef<number | null>(null);
-  const beatCountRef = useRef(0);
+  useEffect(() => {
+    const clock = getClock();
+    clock.onTick = (t) => {
+      if (t >= maxDuration) {
+        stopAll();
+        return;
+      }
+      setPlayheadTime(t);
+    };
+    return () => {
+      clock.onTick = null;
+    };
+  }, [maxDuration]);
+
+  useEffect(() => {
+    return () => {
+      if (metronomeIntervalRef.current) clearInterval(metronomeIntervalRef.current);
+      metronomeCtxRef.current?.close();
+      clockRef.current?.destroy();
+    };
+  }, []);
 
   function tickMetronome() {
     const ctx = metronomeCtxRef.current;
@@ -114,51 +135,29 @@ export default function EditorPage() {
     metronomeCtxRef.current = null;
   }
 
-  const playheadFrameRef = useRef<number>(0);
-
-  const animatePlayhead = useCallback(() => {
-    const elapsed = (Date.now() - startRef.current) / 1000;
-    playheadRef.current = elapsed;
-
-    // Throttle React state updates to ~15fps to avoid audio thread contention
-    playheadFrameRef.current++;
-    if (playheadFrameRef.current % 4 === 0) {
-      setPlayheadTime(elapsed);
-    }
-
-    if (elapsed >= maxDuration) {
-      setPlayheadTime(elapsed);
-      stopAll();
-      return;
-    }
-    animRef.current = requestAnimationFrame(animatePlayhead);
-  }, [maxDuration]);
-
   function playAll() {
-    const ctx = getPlaybackCtx();
-    if (ctx?.state === "suspended") ctx.resume();
+    const clock = getClock();
+    if (clock.ctx.state === "suspended") clock.ctx.resume();
+    clock.play();
     setIsPlaying(true);
-    startRef.current = Date.now() - playheadRef.current * 1000;
-    animRef.current = requestAnimationFrame(animatePlayhead);
     if (metronomeOn) startMetronome();
   }
 
   function stopAll() {
+    const clock = getClock();
+    clock.stop();
     setIsPlaying(false);
     setIsRecording(false);
-    cancelAnimationFrame(animRef.current);
     stopMetronome();
-    playheadRef.current = 0;
-    setPlayheadTime(0);
     mediaRecorderRef.current?.stop();
     setTracks((prev) =>
-      prev.map((t) => ({ ...t, isRecording: false, isArmed: false }))
+      prev.map((t) => ({ ...t, isRecording: false, isArmed: false })),
     );
   }
 
   function pauseAll() {
+    getClock().pause();
     setIsPlaying(false);
-    cancelAnimationFrame(animRef.current);
     stopMetronome();
   }
 
@@ -166,16 +165,15 @@ export default function EditorPage() {
     const clamped = Math.max(0, Math.min(time, maxDuration));
     wasPlayingRef.current = isPlaying;
 
-    // Stop: increment seek version so TrackRows kill their sources
     seekVersionRef.current += 1;
     setSeekVersion(seekVersionRef.current);
-    playheadRef.current = clamped;
+
+    const clock = getClock();
+    clock.seekTo(clamped);
     setPlayheadTime(clamped);
 
     if (wasPlayingRef.current) {
-      // Restart animation from new position
-      startRef.current = Date.now() - clamped * 1000;
-      animRef.current = requestAnimationFrame(animatePlayhead);
+      clock.play();
     }
   }
 
@@ -202,8 +200,8 @@ export default function EditorPage() {
             prev.map((t) =>
               t.id === recordingTrackRef.current
                 ? { ...t, audioBlob: blob, audioUrl: URL.createObjectURL(blob), duration: audio.duration, isRecording: false, isArmed: false }
-                : t
-            )
+                : t,
+            ),
           );
         };
         stream.getTracks().forEach((t) => t.stop());
@@ -211,19 +209,18 @@ export default function EditorPage() {
 
       recorder.start();
 
-      const ctx = getPlaybackCtx();
-      if (ctx?.state === "suspended") ctx.resume();
+      const clock = getClock();
+      if (clock.ctx.state === "suspended") clock.ctx.resume();
 
       setIsRecording(true);
       setIsPlaying(true);
-      startRef.current = Date.now() - playheadRef.current * 1000;
-      animRef.current = requestAnimationFrame(animatePlayhead);
+      clock.play();
       if (metronomeOn) startMetronome();
 
       setTracks((prev) =>
         prev.map((t) =>
-          t.id === armedTrack.id ? { ...t, isRecording: true } : t
-        )
+          t.id === armedTrack.id ? { ...t, isRecording: true } : t,
+        ),
       );
     } catch {
       // microphone denied
@@ -246,15 +243,15 @@ export default function EditorPage() {
         prev.map((t) =>
           t.id === trackId
             ? { ...t, audioBlob: blob, audioUrl: url, duration: audio.duration, name: file.name.replace(/\.[^.]+$/, "") }
-            : t
-        )
+            : t,
+        ),
       );
     };
   }
 
   function setTrackOffset(trackId: string, offset: number) {
     setTracks((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, startOffset: Math.max(0, offset) } : t))
+      prev.map((t) => (t.id === trackId ? { ...t, startOffset: Math.max(0, offset) } : t)),
     );
   }
 
@@ -277,13 +274,13 @@ export default function EditorPage() {
               resolve(buf);
             };
             reader.readAsArrayBuffer(t.audioBlob!);
-          })
-      )
+          }),
+      ),
     ).then((buffers) => {
       const sampleRate = ctx.sampleRate;
-      const maxEnd = Math.max(...activeTracks.map((t, i) =>
-        t.startOffset * sampleRate + buffers[i].length
-      ));
+      const maxEnd = Math.max(
+        ...activeTracks.map((t, i) => t.startOffset * sampleRate + buffers[i].length),
+      );
       const length = Math.ceil(maxEnd);
       const out = ctx.createBuffer(2, length, sampleRate);
       const left = out.getChannelData(0);
@@ -292,11 +289,17 @@ export default function EditorPage() {
       activeTracks.forEach((t, idx) => {
         const buf = buffers[idx];
         const offsetSamples = Math.round(t.startOffset * sampleRate);
+        const pan = t.pan;
+        const leftGain = pan <= 0 ? 1 : 1 - pan;
+        const rightGain = pan >= 0 ? 1 : 1 + pan;
+
         for (let c = 0; c < Math.min(buf.numberOfChannels, 2); c++) {
           const data = buf.getChannelData(c);
-          const outChan = c === 0 ? left : right;
           for (let i = 0; i < data.length; i++) {
-            outChan[offsetSamples + i] += data[i] * 0.5;
+            const outIdx = offsetSamples + i;
+            if (outIdx >= length) break;
+            left[outIdx] += data[i] * t.volume * leftGain * 0.5;
+            right[outIdx] += data[i] * t.volume * rightGain * 0.5;
           }
         }
       });
@@ -313,25 +316,83 @@ export default function EditorPage() {
     });
   }
 
+  const handleGlobalDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (file && /\.(mp3|wav|m4a|flac|ogg)$/i.test(file.name)) {
+        separate(file);
+      }
+    },
+    [separate],
+  );
+
   useEffect(() => {
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      stopMetronome();
-      try {
-        if (playbackCtxRef.current?.state !== "closed") {
-          playbackCtxRef.current?.close();
-        }
-      } catch {}
-    };
-  }, []);
+    if (stemJob.status === "completed" && stemJob.result) {
+      const assignments = getTrackAssignments(stemJob.result);
+      const newTracks: TrackData[] = [];
+      assignments.forEach((assign) => {
+        const id = String(Date.now()) + "_" + assign.stemKey;
+        newTracks.push(createTrack(id, assign.name, assign.color));
+      });
+      if (newTracks.length > 0) {
+        setTracks(newTracks);
+        setTimeout(() => {
+          assignments.forEach((assign, idx) => {
+            fetch(assign.url)
+              .then((r) => r.blob())
+              .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.onloadedmetadata = () => {
+                  setTracks((prev) =>
+                    prev.map((t, i) =>
+                      i === idx ? { ...t, audioBlob: blob, audioUrl: url, duration: audio.duration } : t,
+                    ),
+                  );
+                };
+              });
+          });
+        }, 100);
+      }
+    }
+  }, [stemJob.status, stemJob.result, getTrackAssignments]);
+
+  const anySolo = tracks.some((t) => t.solo);
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div
+      className="max-w-4xl space-y-4"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleGlobalDrop}
+    >
+      {/* Global drop zone overlay */}
+      {stemJob.status === "uploading" || stemJob.status === "processing" ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
+        >
+          <div className="bg-daw-surface-2 rounded-xl p-8 text-center space-y-4 border border-daw-border shadow-2xl max-w-sm">
+            <Zap className="w-10 h-10 text-daw-accent mx-auto animate-pulse" />
+            <h2 className="text-lg font-bold text-daw-text">Stem Separation</h2>
+            <p className="text-sm text-daw-text-muted">{stemJob.progress}</p>
+            <Loader2 className="w-6 h-6 text-daw-accent animate-spin mx-auto" />
+          </div>
+        </motion.div>
+      ) : null}
+
+      {stemJob.status === "failed" && stemJob.progress ? (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          {stemJob.progress}
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-daw-text">Multitrack Editor</h1>
           <p className="text-xs text-daw-text-muted">
-            Record and layer instruments. Arm a track, press record.
+            Drop a full song to auto-separate stems. Record and layer instruments.
           </p>
         </div>
 
@@ -360,7 +421,7 @@ export default function EditorPage() {
               "p-1.5 rounded-lg transition-colors",
               metronomeOn
                 ? "bg-daw-accent/20 text-daw-accent"
-                : "bg-daw-surface-2 text-daw-text-dim hover:text-daw-text"
+                : "bg-daw-surface-2 text-daw-text-dim hover:text-daw-text",
             )}
             title="Toggle metronome"
           >
@@ -406,6 +467,33 @@ export default function EditorPage() {
         </div>
       </div>
 
+      {/* Global drop zone */}
+      <div
+        className={cn(
+          "p-4 rounded-lg border-2 border-dashed transition-colors text-center",
+          stemJob.status === "idle"
+            ? "border-daw-border hover:border-daw-accent/50 hover:bg-daw-accent/5"
+            : "border-daw-accent/30 bg-daw-accent/5",
+        )}
+        onDrop={(e) => {
+          e.preventDefault();
+          const file = e.dataTransfer.files?.[0];
+          if (file) separate(file);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+      >
+        <div className="flex items-center justify-center gap-2 text-sm text-daw-text-muted">
+          <Music className="w-4 h-4" />
+          <span>
+            Drop a full song here to auto-separate stems
+            <span className="text-daw-text-dim"> (MP3, WAV, M4A, FLAC)</span>
+          </span>
+        </div>
+        {stemJob.status !== "idle" && (
+          <p className="text-xs text-daw-accent mt-1">{stemJob.progress}</p>
+        )}
+      </div>
+
       {/* Timeline ruler */}
       <div className="h-6 bg-daw-surface-2 rounded-t-lg relative overflow-hidden border-b border-daw-border">
         {Array.from({ length: Math.ceil(maxDuration) }).map((_, i) => (
@@ -431,8 +519,7 @@ export default function EditorPage() {
             step={0.05}
             value={playheadTime}
             onChange={(e) => {
-              const t = parseFloat(e.target.value);
-              seekTo(t);
+              seekTo(parseFloat(e.target.value));
             }}
             className="w-full h-3 appearance-none bg-transparent cursor-pointer
               [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-daw-surface-3
@@ -440,7 +527,6 @@ export default function EditorPage() {
               [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-daw-surface-3
               [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-daw-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-daw-accent/40 [&::-moz-range-thumb]:cursor-grab [&::-moz-range-thumb]:active:cursor-grabbing"
           />
-          {/* Playhead position label */}
           <div
             className="absolute -bottom-1 text-[9px] text-daw-accent font-mono pointer-events-none"
             style={{
@@ -455,64 +541,76 @@ export default function EditorPage() {
 
       {/* Tracks */}
       <motion.div className="space-y-1" layout>
-        {tracks.map((track) => (
-          <div key={track.id} className="flex items-start gap-1">
-            <div className="flex-1">
-              <TrackRow
-                track={track}
-                isPlaying={isPlaying}
-                playheadTime={playheadTime}
-                seekVersion={seekVersion}
-                ctx={getPlaybackCtx()}
-                onToggleMute={() =>
-                  setTracks((prev) =>
-                    prev.map((t) =>
-                      t.id === track.id ? { ...t, muted: !t.muted } : t
+        {tracks.map((track) => {
+          const effectiveAudible = anySolo ? track.solo && !track.muted : !track.muted;
+          return (
+            <div key={track.id} className="flex items-start gap-1">
+              <div className="flex-1">
+                <TrackRow
+                  track={track}
+                  effectiveAudible={effectiveAudible}
+                  isPlaying={isPlaying}
+                  playheadTime={playheadTime}
+                  seekVersion={seekVersion}
+                  ctx={getClock().ctx}
+                  masterBus={getClock().masterBus}
+                  onToggleMute={() =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, muted: !t.muted } : t,
+                      ),
                     )
-                  )
-                }
-                onToggleSolo={() =>
-                  setTracks((prev) =>
-                    prev.map((t) =>
-                      t.id === track.id ? { ...t, solo: !t.solo } : t
+                  }
+                  onToggleSolo={() =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, solo: !t.solo } : t,
+                      ),
                     )
-                  )
-                }
-                onToggleArm={() =>
-                  setTracks((prev) =>
-                    prev.map((t) =>
-                      t.id === track.id
-                        ? { ...t, isArmed: !t.isArmed }
-                        : { ...t, isArmed: false }
+                  }
+                  onToggleArm={() =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id
+                          ? { ...t, isArmed: !t.isArmed }
+                          : { ...t, isArmed: false },
+                      ),
                     )
-                  )
-                }
-                onVolumeChange={(v) =>
-                  setTracks((prev) =>
-                    prev.map((t) =>
-                      t.id === track.id ? { ...t, volume: v } : t
+                  }
+                  onVolumeChange={(v) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, volume: v } : t,
+                      ),
                     )
-                  )
-                }
-                onNameChange={(name) =>
-                  setTracks((prev) =>
-                    prev.map((t) =>
-                      t.id === track.id ? { ...t, name } : t
+                  }
+                  onPanChange={(v) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, pan: v } : t,
+                      ),
                     )
-                  )
-                }
-                onFileLoad={(file) => loadFileToTrack(track.id, file)}
-                onOffsetChange={(offset) => setTrackOffset(track.id, offset)}
-              />
+                  }
+                  onNameChange={(name) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, name } : t,
+                      ),
+                    )
+                  }
+                  onFileLoad={(file) => loadFileToTrack(track.id, file)}
+                  onOffsetChange={(offset) => setTrackOffset(track.id, offset)}
+                />
+              </div>
+              <button
+                onClick={() => removeTrack(track.id)}
+                className="p-1 mt-3 text-daw-text-dim hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <button
-              onClick={() => removeTrack(track.id)}
-              className="p-1 mt-3 text-daw-text-dim hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </motion.div>
 
       {/* Add track */}
