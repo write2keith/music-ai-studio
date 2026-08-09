@@ -54,7 +54,7 @@ async function fetchWithRetry(input: RequestInfo, init?: RequestInit): Promise<R
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithRetry(`${API_BASE}${path}`, {
     ...init,
-    credentials: "include",
+    ...(API_BASE ? {} : { credentials: "include" as const }),
     headers: {
       ...(init?.headers),
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -73,7 +73,7 @@ async function upload<T>(path: string, formData: FormData): Promise<T> {
   const res = await fetchWithRetry(`${API_BASE}${path}`, {
     method: "POST",
     body: formData,
-    credentials: "include",
+    ...(API_BASE ? {} : { credentials: "include" as const }),
   });
 
   if (!res.ok) {
