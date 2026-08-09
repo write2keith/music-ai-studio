@@ -172,18 +172,42 @@ async def compress_audio(
     to_mono: bool = Form(default=True),
     output_format: str = Form(default="wav"),
 ):
-    import numpy as np
-    import scipy.io.wavfile as wav
-
-    output_dir = Path(settings.UPLOAD_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     original_content = await file.read()
     original_size = len(original_content)
 
     ext = Path(file.filename).suffix if file.filename else ".wav"
-    tmp_path = output_dir / f"compress_in_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path = Path(settings.UPLOAD_DIR) / f"compress_in_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path.write_bytes(original_content)
+
+    try:
+        result = await _run_blocking(
+            _do_compress, str(tmp_path), sample_rate, bit_depth, to_mono, output_format,
+        )
+    except HTTPException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+    tmp_path.unlink(missing_ok=True)
+    return CompressResponse(
+        ok=True,
+        url=f"/api/audio/edits/{result['filename']}",
+        filename=result["filename"],
+        original_size=original_size,
+        compressed_size=result["compressed_size"],
+        sample_rate=result["sample_rate"],
+        bit_depth=result["bit_depth"],
+        channels=1 if to_mono else 0,
+    )
+
+
+def _do_compress(
+    tmp_path_str: str, sample_rate: int, bit_depth: int, to_mono: bool, output_format: str
+) -> dict:
+    import numpy as np
+    import scipy.io.wavfile as wav
+    output_dir = Path(settings.UPLOAD_DIR)
+    tmp_path = Path(tmp_path_str)
 
     wav_path = tmp_path
     try:
@@ -242,25 +266,13 @@ async def compress_audio(
             logger.warning(f"MP3 export failed, falling back to WAV: {e}")
 
     compressed_size = out_path.stat().st_size
-    reduction_pct = round((1 - compressed_size / original_size) * 100, 1) if original_size > 0 else 0
 
-    for p in [tmp_path, wav_path]:
-        p.unlink(missing_ok=True)
-
-    out_filename = out_path.name
-    logger.info(f"Compressed: {original_size}B -> {compressed_size}B ({reduction_pct}% reduction) [{out_ext}]")
-
-    return CompressResponse(
-        ok=True,
-        original_size=original_size,
-        compressed_size=compressed_size,
-        reduction_pct=reduction_pct,
-        filename=out_filename,
-        url=f"/api/audio/{out_filename}",
-        sample_rate=sample_rate,
-        duration_secs=round(duration, 1),
-        channels=1 if to_mono else 2,
-    )
+    return {
+        "filename": out_filename,
+        "compressed_size": compressed_size,
+        "sample_rate": sample_rate,
+        "bit_depth": bit_depth,
+    }
 
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -563,41 +575,13 @@ async def transcribe_notes(
     tmp_path = output_dir / f"transcribe_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(content)
 
-    wav_path = tmp_path
-    try:
-        import scipy.io.wavfile
-        scipy.io.wavfile.read(str(wav_path))
-    except Exception:
-        try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_file(str(tmp_path))
-            wav_path = output_dir / f"transcribe_{uuid.uuid4().hex[:12]}.wav"
-            audio.export(str(wav_path), format="wav")
-            tmp_path.unlink(missing_ok=True)
-            scipy.io.wavfile.read(str(wav_path))
-        except Exception as e:
-            for p in [tmp_path, wav_path]:
-                p.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=400,
-                detail="Unable to read audio file. Supported formats: WAV, MP3, M4A, FLAC, OGG. Ensure ffmpeg is installed for non-WAV formats.",
-            )
+    result, wav_path = await _run_blocking(
+        _do_transcribe, str(tmp_path), str(output_dir), method, store_id,
+    )
 
-    try:
-        if method == "polyphonic":
-            result = _detect_notes_polyphonic(str(wav_path))
-        else:
-            from ..services.calibration import get_detection_params
-            cal = get_detection_params(store_id)
-            result = _detect_notes_fft(str(wav_path), cal)
-    except Exception as e:
-        wav_path.unlink(missing_ok=True)
-        if wav_path != tmp_path:
-            tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)[:200]}")
-
-    wav_path.unlink(missing_ok=True)
-    if wav_path != tmp_path:
+    wav_path_obj = Path(wav_path) if wav_path else tmp_path
+    wav_path_obj.unlink(missing_ok=True)
+    if wav_path_obj != tmp_path:
         tmp_path.unlink(missing_ok=True)
 
     return TranscribeResponse(
@@ -607,6 +591,40 @@ async def transcribe_notes(
         method=result["method"],
         note_count=len(result["notes"]),
     )
+
+
+def _do_transcribe(tmp_path: str, output_dir: str, method: str, store_id: str):
+    import scipy.io.wavfile
+    tmp = Path(tmp_path)
+    out = Path(output_dir)
+    wav_path = str(tmp)
+
+    try:
+        scipy.io.wavfile.read(wav_path)
+    except Exception:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp))
+            wav_path = str(out / f"transcribe_{uuid.uuid4().hex[:12]}.wav")
+            audio.export(wav_path, format="wav")
+            tmp.unlink(missing_ok=True)
+            scipy.io.wavfile.read(wav_path)
+        except Exception as e:
+            for p in [tmp, Path(wav_path)]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Unable to read audio file. Supported formats: WAV, MP3, M4A, FLAC, OGG.",
+            )
+
+    if method == "polyphonic":
+        result = _detect_notes_polyphonic(wav_path)
+    else:
+        from ..services.calibration import get_detection_params
+        cal = get_detection_params(store_id)
+        result = _detect_notes_fft(wav_path, cal)
+
+    return result, wav_path
 
 
 class VocalScoreResponse(BaseModel):
@@ -1134,29 +1152,9 @@ async def chord_detect(file: UploadFile = File(...)):
     tmp_path = output_dir / f"chord_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(content)
 
-    wav_path = tmp_path
-    try:
-        import scipy.io.wavfile
-        scipy.io.wavfile.read(str(wav_path))
-    except Exception:
-        try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_file(str(tmp_path))
-            wav_path = output_dir / f"chord_{uuid.uuid4().hex[:12]}.wav"
-            audio.export(str(wav_path), format="wav")
-            tmp_path.unlink(missing_ok=True)
-        except Exception as e:
-            for p in [tmp_path, wav_path]:
-                p.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+    result = await _run_blocking(_do_chord_detect, str(tmp_path), str(output_dir))
 
-    try:
-        result = _detect_chords_polyphonic(str(wav_path))
-    except Exception as e:
-        wav_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"Chord detection failed: {str(e)[:200]}")
-
-    wav_path.unlink(missing_ok=True)
+    Path(tmp_path).unlink(missing_ok=True)
 
     return ChordDetectResponse(
         ok=True,
@@ -1164,6 +1162,31 @@ async def chord_detect(file: UploadFile = File(...)):
         duration_secs=result["duration_secs"],
         chord_count=len(result["chords"]),
     )
+
+
+def _do_chord_detect(tmp_path: str, output_dir: str):
+    tmp = Path(tmp_path)
+    out = Path(output_dir)
+    wav_path = str(tmp)
+
+    try:
+        import scipy.io.wavfile
+        scipy.io.wavfile.read(wav_path)
+    except Exception:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(str(tmp))
+            wav_path = str(out / f"chord_{uuid.uuid4().hex[:12]}.wav")
+            audio.export(wav_path, format="wav")
+            tmp.unlink(missing_ok=True)
+        except Exception as e:
+            for p in [tmp, Path(wav_path)]:
+                p.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+
+    result = _detect_chords_polyphonic(wav_path)
+    Path(wav_path).unlink(missing_ok=True)
+    return result
 
 
 # ── Pitch & Tempo Adjustment ──────────────────────────────────
@@ -1183,23 +1206,29 @@ async def adjust_pitch_tempo(
     pitch_semitones: float = Form(default=0.0),
     tempo_factor: float = Form(default=1.0),
 ):
-    output_dir = Path(settings.UPLOAD_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     pitch_semitones = max(-12.0, min(12.0, pitch_semitones))
     tempo_factor = max(0.5, min(2.0, tempo_factor))
 
     content = await file.read()
     ext = Path(file.filename).suffix if file.filename else ".wav"
-    tmp_path = output_dir / f"pitch_in_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path = Path(settings.UPLOAD_DIR) / f"pitch_in_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path.write_bytes(content)
 
-    try:
-        from pydub import AudioSegment
-        audio = AudioSegment.from_file(str(tmp_path))
-    except Exception as e:
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
+    result = await _run_blocking(
+        _do_pitch_tempo, str(tmp_path), pitch_semitones, tempo_factor,
+    )
+
+    tmp_path.unlink(missing_ok=True)
+    return PitchTempoResponse(**result)
+
+
+def _do_pitch_tempo(tmp_path: str, pitch_semitones: float, tempo_factor: float) -> dict:
+    from pydub import AudioSegment
+    tmp = Path(tmp_path)
+    output_dir = Path(settings.UPLOAD_DIR)
+
+    audio = AudioSegment.from_file(str(tmp))
 
     original_bpm = len(audio) and (audio.frame_rate / len(audio.get_array_of_samples())) or 0.0
 
@@ -1227,18 +1256,16 @@ async def adjust_pitch_tempo(
     out_path = output_dir / out_filename
     audio.export(str(out_path), format="wav")
 
-    tmp_path.unlink(missing_ok=True)
-
     adjusted_bpm = original_bpm * tempo_factor if original_bpm > 0 else 0.0
 
-    return PitchTempoResponse(
-        ok=True,
-        filename=out_filename,
-        url=f"/api/audio/{out_filename}",
-        duration_secs=round(len(audio) / 1000.0, 1),
-        original_bpm=round(original_bpm if original_bpm > 0 else 120.0, 1),
-        adjusted_bpm=round(adjusted_bpm, 1),
-    )
+    return {
+        "ok": True,
+        "filename": out_filename,
+        "url": f"/api/audio/{out_filename}",
+        "duration_secs": round(len(audio) / 1000.0, 1),
+        "original_bpm": round(original_bpm if original_bpm > 0 else 120.0, 1),
+        "adjusted_bpm": round(adjusted_bpm, 1),
+    }
 
 
 # ── Lyric Transcription ───────────────────────────────────────
@@ -1397,39 +1424,56 @@ async def guitar_tab(
     tmp_path = output_dir / f"tab_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(content)
 
-    wav_path = tmp_path
+    result = await _run_blocking(
+        _do_guitar_tab, str(tmp_path), str(output_dir), store_id, tuning_key,
+    )
+
+    tmp_path.unlink(missing_ok=True)
+
+    return GuitarTabResponse(
+        ok=True,
+        notes=result["notes"],
+        duration_secs=result["duration_secs"],
+        note_count=result["note_count"],
+        tuning=tuning["strings"],
+        tuning_key=tuning_key,
+    )
+
+
+def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: str):
+    import scipy.io.wavfile
+    tmp = Path(tmp_path)
+    out = Path(output_dir)
+    wav_path_str = str(tmp)
+
     try:
-        import scipy.io.wavfile
-        scipy.io.wavfile.read(str(wav_path))
+        scipy.io.wavfile.read(wav_path_str)
     except Exception:
         try:
             from pydub import AudioSegment
-            audio = AudioSegment.from_file(str(tmp_path))
-            wav_path = output_dir / f"tab_{uuid.uuid4().hex[:12]}.wav"
-            audio.export(str(wav_path), format="wav")
-            tmp_path.unlink(missing_ok=True)
+            audio = AudioSegment.from_file(str(tmp))
+            wav_path_str = str(out / f"tab_{uuid.uuid4().hex[:12]}.wav")
+            audio.export(wav_path_str, format="wav")
+            tmp.unlink(missing_ok=True)
         except Exception as e:
-            for p in [tmp_path, wav_path]:
+            for p in [tmp, Path(wav_path_str)]:
                 p.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
 
-    try:
-        from ..services.calibration import get_detection_params
-        cal = get_detection_params(store_id)
-        result = _detect_notes_fft(str(wav_path), cal)
-    except Exception as e:
-        wav_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"Note detection failed: {str(e)[:200]}")
+    from ..services.calibration import get_detection_params
+    cal = get_detection_params(store_id)
+    notes_result = _detect_notes_fft(wav_path_str, cal)
 
-    wav_path.unlink(missing_ok=True)
+    Path(wav_path_str).unlink(missing_ok=True)
 
     tab_notes = []
-    for n in result["notes"]:
+    for n in notes_result["notes"]:
         midi = n["pitch"]
         candidates = _midi_to_tab(midi, tuning_key)
         if not candidates:
             continue
         best_s, best_f = candidates[0]
+        tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
         tab_notes.append(TabNote(
             start_time=n["start_time"],
             end_time=n["end_time"],
@@ -1441,14 +1485,11 @@ async def guitar_tab(
             velocity=n["velocity"],
         ))
 
-    return GuitarTabResponse(
-        ok=True,
-        notes=tab_notes,
-        duration_secs=round(result["duration_secs"], 2),
-        note_count=len(tab_notes),
-        tuning=tuning["strings"],
-        tuning_key=tuning_key,
-    )
+    return {
+        "notes": tab_notes,
+        "duration_secs": round(notes_result["duration_secs"], 2),
+        "note_count": len(tab_notes),
+    }
 
 
 # ── Learning / Calibration System ─────────────────────────────
