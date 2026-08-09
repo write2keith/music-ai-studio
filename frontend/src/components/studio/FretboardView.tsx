@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { TabNote } from "@/lib/api";
 
 interface Props {
@@ -9,17 +10,17 @@ interface Props {
   showAll?: boolean;
 }
 
-const FRET_COUNT = 12;
-const FRET_WIDTH = 36;
+const FRET_COUNT = 24;
+const FRET_WIDTH = 28;
 const STRING_SPACING = 28;
-const PADDING_X = 48;
+const PADDING_X = 44;
 const PADDING_Y = 20;
 const NUT_WIDTH = 4;
 
-const FRET_POSITIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const DOT_FRETS = [3, 5, 7, 9, 12];
+const FRET_POSITIONS = Array.from({ length: FRET_COUNT }, (_, i) => i + 1);
+const DOT_FRETS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
 
-export function FretboardView({ tuning, activeNotes, allNotes, showAll = false }: Props) {
+export const FretboardView = memo(function FretboardView({ tuning, activeNotes, allNotes, showAll = false }: Props) {
   const stringCount = tuning.length;
   const totalWidth = PADDING_X * 2 + FRET_COUNT * FRET_WIDTH;
   const totalHeight = PADDING_Y * 2 + (stringCount - 1) * STRING_SPACING;
@@ -141,13 +142,15 @@ export function FretboardView({ tuning, activeNotes, allNotes, showAll = false }
         {/* Note markers */}
         {notesToShow.map((note, i) => {
           const y = PADDING_Y + (stringCount - 1 - note.string) * STRING_SPACING;
-          const fretIdx = FRET_POSITIONS.indexOf(note.fret);
+          const clampedFret = Math.max(0, Math.min(FRET_COUNT, note.fret));
+          const fretIdx = clampedFret === 0 ? -1 : FRET_POSITIONS.indexOf(clampedFret);
           const x = fretIdx >= 0
             ? PADDING_X + (fretIdx + 0.5) * FRET_WIDTH
-            : PADDING_X + (note.fret - 0.5) * (FRET_WIDTH * 0.6);
+            : PADDING_X - 14;
 
+          const isOpen = note.fret === 0;
           const isActive = !showAll;
-          const size = isActive ? 12 : 8;
+          const size = isActive ? 10 : 7;
           return (
             <g key={`note-${i}`}>
               {isActive && (
@@ -189,7 +192,7 @@ export function FretboardView({ tuning, activeNotes, allNotes, showAll = false }
                 fontFamily="monospace"
                 fontWeight="bold"
               >
-                {note.fret}
+                {isOpen ? "O" : note.fret > FRET_COUNT ? `${FRET_COUNT}+` : note.fret}
               </text>
             </g>
           );
@@ -197,4 +200,4 @@ export function FretboardView({ tuning, activeNotes, allNotes, showAll = false }
       </svg>
     </div>
   );
-}
+});

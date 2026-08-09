@@ -20,6 +20,18 @@ const HEADER_HEIGHT = 22;
 const PADDING_TOP = 8;
 const PADDING_BOTTOM = 8;
 
+function validateFret(note: TabNote): number {
+  let fret = note.fret;
+  if (fret >= 0 && fret <= 24) return fret;
+  const openMidi = [40, 45, 50, 55, 59, 64][note.string];
+  if (openMidi !== undefined) {
+    const computed = note.pitch - openMidi;
+    if (computed >= 0 && computed <= 24) return computed;
+  }
+  const clamped = Math.max(0, Math.min(24, fret));
+  return Number.isFinite(clamped) ? clamped : -1;
+}
+
 export default function TabRenderer({
   notes,
   tuning,
@@ -121,27 +133,35 @@ export default function TabRenderer({
       ctx.setLineDash([]);
 
       // Notes
+      const usedPositions = new Map<string, number>();
       for (const note of notes) {
         const x = timeToX(note.start_time);
         const s = STRING_COUNT - 1 - note.string;
         const y = staffTop + s * STRING_SPACING + STRING_SPACING / 2;
+
+        const posKey = `${Math.round(x / 6)}-${s}`;
+        const overlapCount = usedPositions.get(posKey) ?? 0;
+        usedPositions.set(posKey, overlapCount + 1);
+        const staggerX = overlapCount > 0 ? (overlapCount % 2 === 0 ? -6 : 6) : 0;
 
         const durationPx = Math.max(
           12,
           ((note.end_time - note.start_time) / maxTime) * usableWidth,
         );
         ctx.fillStyle = "rgba(251, 146, 60, 0.15)";
-        ctx.fillRect(x - 2, y - STRING_SPACING / 2 + 2, durationPx, STRING_SPACING - 4);
+        ctx.fillRect(x - 2 + staggerX, y - STRING_SPACING / 2 + 2, durationPx, STRING_SPACING - 4);
 
-        ctx.fillStyle = "#fb923c";
+        const fret = validateFret(note);
+        const fretText = fret >= 0 ? String(fret) : "?";
+        ctx.fillStyle = fret >= 0 ? "#fb923c" : "#ef4444";
         ctx.font = "bold 11px monospace";
         ctx.textAlign = "center";
-        ctx.fillText(String(note.fret), x, y + 4);
+        ctx.fillText(fretText, x + staggerX, y + 4);
 
         if (note.note_name) {
           ctx.fillStyle = "#6b7280";
           ctx.font = "7px monospace";
-          ctx.fillText(note.note_name, x, y + STRING_SPACING / 2);
+          ctx.fillText(note.note_name, x + staggerX, y + STRING_SPACING / 2);
         }
       }
     }
