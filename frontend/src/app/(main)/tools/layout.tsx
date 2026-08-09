@@ -18,6 +18,7 @@ const TOOLS = [
   { href: "/tools/lead-back-split", label: "Ld/Bk Split", icon: "Lb" },
   { href: "/tools/voice-changer", label: "Voice Change", icon: "Vg" },
   { href: "/tools/dereverb", label: "Dereverb", icon: "Dr" },
+  { href: "/tools/karaoke", label: "Karaoke", icon: "Ka" },
 ];
 
 export default function ToolsLayout({ children }: { children: React.ReactNode }) {
