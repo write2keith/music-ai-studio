@@ -10,6 +10,7 @@ export interface StemResult {
 interface StemJobState {
   status: "idle" | "uploading" | "processing" | "completed" | "failed";
   progress: string;
+  progressPct: number;
   result: StemResult | null;
 }
 
@@ -23,14 +24,20 @@ const STEM_TO_TRACK_MAP: Record<string, { name: string; color: string }> = {
 };
 
 const POLL_INTERVAL = 2000;
+const MAX_ATTEMPTS = 180;
+const ESTIMATED_SECS = 45;
+
+const emptyState: StemJobState = {
+  status: "idle",
+  progress: "",
+  progressPct: 0,
+  result: null,
+};
 
 export function useStemSeparator() {
-  const [job, setJob] = useState<StemJobState>({
-    status: "idle",
-    progress: "",
-    result: null,
-  });
+  const [job, setJob] = useState<StemJobState>(emptyState);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const processingRef = useRef(false);
 
   const cleanup = useCallback(() => {
     if (pollRef.current) {
@@ -42,8 +49,11 @@ export function useStemSeparator() {
   useEffect(() => cleanup, [cleanup]);
 
   const separate = useCallback(async (file: File) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
     cleanup();
-    setJob({ status: "uploading", progress: "Uploading...", result: null });
+    setJob({ status: "uploading", progress: "Uploading...", progressPct: 5, result: null });
 
     const fd = new FormData();
     fd.append("file", file);
@@ -55,14 +65,14 @@ export function useStemSeparator() {
       const data = await res.json();
       jobId = data.job_id;
     } catch (err: any) {
-      setJob({ status: "failed", progress: err.message, result: null });
+      processingRef.current = false;
+      setJob({ status: "failed", progress: err.message, progressPct: 0, result: null });
       return;
     }
 
-    setJob({ status: "processing", progress: "Separating stems...", result: null });
+    setJob({ status: "processing", progress: "Separating stems...", progressPct: 10, result: null });
 
     let attempts = 0;
-    const maxAttempts = 180;
 
     pollRef.current = setInterval(async () => {
       attempts++;
@@ -76,31 +86,44 @@ export function useStemSeparator() {
 
         if (data.status === "completed") {
           cleanup();
+          processingRef.current = false;
           setJob({
             status: "completed",
             progress: "",
+            progressPct: 100,
             result: {
               all_stems: data.all_stems || {},
               duration_secs: data.duration_secs || 0,
             },
           });
-        } else if (attempts >= maxAttempts) {
+        } else if (attempts >= MAX_ATTEMPTS) {
           cleanup();
-          setJob({ status: "failed", progress: "Timed out waiting for stem separation", result: null });
+          processingRef.current = false;
+          setJob({ status: "failed", progress: "Timed out waiting for stem separation", progressPct: 0, result: null });
         } else {
+          const elapsed = attempts * POLL_INTERVAL / 1000;
+          const pct = Math.min(95, 10 + (elapsed / ESTIMATED_SECS) * 85);
           setJob({
             status: "processing",
-            progress: `Separating stems... (${Math.min(attempts * POLL_INTERVAL / 1000, 120)}s)`,
+            progress: `Separating stems... (${Math.round(elapsed)}s)`,
+            progressPct: Math.round(pct),
             result: null,
           });
         }
       } catch (err: any) {
-        if (attempts >= maxAttempts) {
+        if (attempts >= MAX_ATTEMPTS) {
           cleanup();
-          setJob({ status: "failed", progress: err.message || "Stem separation failed", result: null });
+          processingRef.current = false;
+          setJob({ status: "failed", progress: err.message || "Stem separation failed", progressPct: 0, result: null });
         }
       }
     }, POLL_INTERVAL);
+  }, [cleanup]);
+
+  const reset = useCallback(() => {
+    cleanup();
+    processingRef.current = false;
+    setJob(emptyState);
   }, [cleanup]);
 
   const getTrackAssignments = useCallback(
@@ -116,5 +139,5 @@ export function useStemSeparator() {
     [],
   );
 
-  return { job, setJob, separate, getTrackAssignments };
+  return { job, reset, separate, getTrackAssignments };
 }

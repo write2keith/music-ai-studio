@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, Square, Plus, Mic, Download, Trash2, Loader2, Music, Zap } from "lucide-react";
+import { Play, Pause, Square, Plus, Mic, Download, Trash2, Music, Zap } from "lucide-react";
 import { TrackRow, type TrackData } from "@/components/studio/TrackRow";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -67,7 +67,7 @@ export default function EditorPage() {
   const beatCountRef = useRef(0);
   const [metronomeOn, setMetronomeOn] = useState(false);
 
-  const { job: stemJob, separate, getTrackAssignments } = useStemSeparator();
+  const { job: stemJob, reset: resetStemJob, separate, getTrackAssignments } = useStemSeparator();
 
   function getClock(): MasterClock {
     if (!clockRef.current) clockRef.current = MasterClock.instance;
@@ -371,31 +371,49 @@ export default function EditorPage() {
 
   const anySolo = tracks.some((t) => t.solo);
 
+  const isProcessing = stemJob.status === "uploading" || stemJob.status === "processing";
+
   return (
     <div
       className="max-w-4xl space-y-4"
       onDragOver={(e) => e.preventDefault()}
-      onDrop={handleGlobalDrop}
+      onDrop={isProcessing ? undefined : handleGlobalDrop}
     >
       {/* Global drop zone overlay */}
-      {stemJob.status === "uploading" || stemJob.status === "processing" ? (
+      {isProcessing ? (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
         >
-          <div className="bg-daw-surface-2 rounded-xl p-8 text-center space-y-4 border border-daw-border shadow-2xl max-w-sm">
+          <div className="bg-daw-surface-2 rounded-xl p-8 text-center space-y-5 border border-daw-border shadow-2xl max-w-sm w-full mx-4">
             <Zap className="w-10 h-10 text-daw-accent mx-auto animate-pulse" />
-            <h2 className="text-lg font-bold text-daw-text">Stem Separation</h2>
-            <p className="text-sm text-daw-text-muted">{stemJob.progress}</p>
-            <Loader2 className="w-6 h-6 text-daw-accent animate-spin mx-auto" />
+            <div>
+              <h2 className="text-lg font-bold text-daw-text">Stem Separation</h2>
+              <p className="text-sm text-daw-text-muted mt-1">{stemJob.progress}</p>
+            </div>
+            <div className="w-full bg-daw-surface-3 rounded-full h-2 overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-daw-accent to-daw-cyan rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${stemJob.progressPct}%` }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+              />
+            </div>
+            <p className="text-xs text-daw-text-dim">{stemJob.progressPct}%</p>
           </div>
         </motion.div>
       ) : null}
 
       {stemJob.status === "failed" && stemJob.progress ? (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-          {stemJob.progress}
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center justify-between">
+          <span>{stemJob.progress}</span>
+          <button
+            onClick={resetStemJob}
+            className="text-xs text-daw-text-dim hover:text-daw-text underline underline-offset-2 ml-4 shrink-0"
+          >
+            dismiss
+          </button>
         </div>
       ) : null}
 
@@ -482,6 +500,7 @@ export default function EditorPage() {
       <div
         className={cn(
           "p-4 rounded-lg border-2 border-dashed transition-colors text-center",
+          isProcessing && "pointer-events-none opacity-50",
           stemJob.status === "idle"
             ? "border-daw-border hover:border-daw-accent/50 hover:bg-daw-accent/5"
             : "border-daw-accent/30 bg-daw-accent/5",
