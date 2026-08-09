@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: [".monkeycode-ai.live", "127.0.0.1", "localhost"],
 
+  transpilePackages: ["soundtouchjs"],
+
   experimental: {
     proxyClientMaxBodySize: "500mb",
   },
