@@ -327,6 +327,17 @@ export default function EditorPage() {
     [separate],
   );
 
+  const stemInputRef = useRef<HTMLInputElement>(null);
+
+  const handleStemBrowse = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) separate(file);
+      if (stemInputRef.current) stemInputRef.current.value = "";
+    },
+    [separate],
+  );
+
   useEffect(() => {
     if (stemJob.status === "completed" && stemJob.result) {
       const assignments = getTrackAssignments(stemJob.result);
@@ -482,12 +493,26 @@ export default function EditorPage() {
         }}
         onDragOver={(e) => e.preventDefault()}
       >
+        <input
+          ref={stemInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleStemBrowse}
+          className="hidden"
+        />
         <div className="flex items-center justify-center gap-2 text-sm text-daw-text-muted">
           <Music className="w-4 h-4" />
           <span>
             Drop a full song here to auto-separate stems
             <span className="text-daw-text-dim"> (MP3, WAV, M4A, FLAC)</span>
           </span>
+          <span className="text-daw-text-dim mx-1">or</span>
+          <button
+            onClick={() => stemInputRef.current?.click()}
+            className="text-daw-accent hover:text-daw-accent-glow underline underline-offset-2 transition-colors"
+          >
+            browse
+          </button>
         </div>
         {stemJob.status !== "idle" && (
           <p className="text-xs text-daw-accent mt-1">{stemJob.progress}</p>
