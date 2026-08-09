@@ -16,6 +16,7 @@ export interface TrackData {
   solo: boolean;
   volume: number;
   pan: number;
+  reverbSend: number;
   duration: number;
   startOffset: number;
 }
@@ -28,6 +29,7 @@ interface TrackRowProps {
   onToggleArm: () => void;
   onVolumeChange: (v: number) => void;
   onPanChange: (v: number) => void;
+  onReverbSendChange: (v: number) => void;
   onNameChange: (name: string) => void;
   onFileLoad: (file: File) => void;
   onOffsetChange: (offset: number) => void;
@@ -36,6 +38,8 @@ interface TrackRowProps {
   seekVersion: number;
   ctx: AudioContext | null;
   masterBus: GainNode | null;
+  reverbWetGain: GainNode | null;
+  effectsReady: boolean;
 }
 
 const COLORS: Record<string, string> = {
@@ -56,6 +60,7 @@ export function TrackRow({
   onToggleArm,
   onVolumeChange,
   onPanChange,
+  onReverbSendChange,
   onNameChange,
   onFileLoad,
   onOffsetChange,
@@ -64,11 +69,14 @@ export function TrackRow({
   seekVersion,
   ctx,
   masterBus,
+  reverbWetGain,
+  effectsReady,
 }: TrackRowProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const panRef = useRef<StereoPannerNode | null>(null);
+  const reverbSendRef = useRef<GainNode | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
   const startedRef = useRef(false);
   const color = COLORS[track.color] || COLORS.violet;
@@ -115,6 +123,12 @@ export function TrackRow({
     }
   }, [track.pan]);
 
+  useEffect(() => {
+    if (reverbSendRef.current) {
+      reverbSendRef.current.gain.value = track.reverbSend;
+    }
+  }, [track.reverbSend]);
+
   function startSource(offset: number) {
     if (!ctx || !bufferRef.current || !masterBus) return;
     stopSource();
@@ -132,6 +146,15 @@ export function TrackRow({
     pan.connect(gain);
     gain.connect(masterBus);
 
+    // Reverb send chain: pan → sendGain → reverbWetGain (shared) → reverbNode → compressor → destination
+    if (effectsReady && reverbWetGain) {
+      const reverbSend = ctx.createGain();
+      reverbSend.gain.value = track.reverbSend;
+      pan.connect(reverbSend);
+      reverbSend.connect(reverbWetGain);
+      reverbSendRef.current = reverbSend;
+    }
+
     source.start(0, offset);
     sourceRef.current = source;
     panRef.current = pan;
@@ -143,6 +166,7 @@ export function TrackRow({
         sourceRef.current = null;
         panRef.current = null;
         gainRef.current = null;
+        reverbSendRef.current = null;
         startedRef.current = false;
       }
     };
@@ -155,6 +179,7 @@ export function TrackRow({
     }
     panRef.current = null;
     gainRef.current = null;
+    reverbSendRef.current = null;
     startedRef.current = false;
   }
 
@@ -277,7 +302,7 @@ export function TrackRow({
             />
             {isPlaying && (
               <div
-                className="absolute top-0 bottom-0 w-0.5 bg-white z-10"
+                className="absolute top-0 bottom-0 w-0.5 bg-daw-cyan z-10"
                 style={{ left: `${Math.min(100, waveformProgress * 100)}%` }}
               />
             )}
@@ -309,7 +334,7 @@ export function TrackRow({
         <span className="text-[9px] text-daw-text-dim">s</span>
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-0.5 shrink-0">
         <button
           onClick={onToggleArm}
           className={cn(
@@ -374,6 +399,23 @@ export function TrackRow({
           onChange={(e) => onPanChange(parseFloat(e.target.value))}
           className="w-full h-1 accent-daw-cyan"
           title="Pan"
+        />
+      </div>
+
+      {/* Reverb send knob */}
+      <div className="flex items-center gap-1 shrink-0 w-14">
+        <span className="text-[9px] text-daw-text-dim w-6 text-right tabular-nums">
+          {Math.round(track.reverbSend * 100)}%
+        </span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={track.reverbSend}
+          onChange={(e) => onReverbSendChange(parseFloat(e.target.value))}
+          className="w-full h-1 accent-daw-pink"
+          title="Reverb send"
         />
       </div>
     </div>

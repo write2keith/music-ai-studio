@@ -5,6 +5,13 @@ let _instance: MasterClock | null = null;
 export class MasterClock {
   ctx!: AudioContext;
   masterBus!: GainNode;
+
+  // Effects chain
+  reverbNode!: ConvolverNode;
+  reverbWetGain!: GainNode;
+  compressorNode!: DynamicsCompressorNode;
+  private _effectsReady = false;
+
   private _startTime = 0;
   private _startOffset = 0;
   private _playing = false;
@@ -35,6 +42,51 @@ export class MasterClock {
     this.masterBus.gain.value = 0.85;
     this.masterBus.connect(this.ctx.destination);
     this._init = true;
+  }
+
+  ensureEffects() {
+    this._ensureInit();
+    if (this._effectsReady) return;
+
+    // Generate reverb impulse response: noise burst with exponential decay
+    const irDuration = 2.0;
+    const irLength = Math.floor(this.ctx.sampleRate * irDuration);
+    const ir = this.ctx.createBuffer(2, irLength, this.ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const ch = ir.getChannelData(c);
+      for (let i = 0; i < irLength; i++) {
+        ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 3);
+      }
+    }
+
+    this.reverbNode = this.ctx.createConvolver();
+    this.reverbNode.buffer = ir;
+    this.reverbNode.normalize = true;
+
+    this.reverbWetGain = this.ctx.createGain();
+    this.reverbWetGain.gain.value = 0.25;
+    this.reverbWetGain.connect(this.reverbNode);
+
+    this.compressorNode = this.ctx.createDynamicsCompressor();
+    this.compressorNode.threshold.value = -24;
+    this.compressorNode.knee.value = 30;
+    this.compressorNode.ratio.value = 12;
+    this.compressorNode.attack.value = 0.003;
+    this.compressorNode.release.value = 0.25;
+
+    // Re-route: masterBus → compressor → destination (was masterBus → destination)
+    this.masterBus.disconnect();
+    this.masterBus.connect(this.compressorNode);
+    this.compressorNode.connect(this.ctx.destination);
+
+    // Reverb goes through compressor too
+    this.reverbNode.connect(this.compressorNode);
+
+    this._effectsReady = true;
+  }
+
+  get effectsReady(): boolean {
+    return this._effectsReady;
   }
 
   get playing(): boolean {

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, Square, Plus, Mic, Download, Trash2, Music, Zap } from "lucide-react";
+import { Play, Pause, Square, Plus, Mic, Download, Trash2, Music, Zap, Waves, Gauge, ChevronDown, ChevronUp } from "lucide-react";
 import { TrackRow, type TrackData } from "@/components/studio/TrackRow";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,7 @@ function createTrack(id: string, name: string, color: string): TrackData {
     solo: false,
     volume: 0.8,
     pan: 0,
+    reverbSend: 0,
     duration: 0,
     startOffset: 0,
   };
@@ -67,12 +68,23 @@ export default function EditorPage() {
   const beatCountRef = useRef(0);
   const [metronomeOn, setMetronomeOn] = useState(false);
 
+  // Master effects state
+  const [reverbLevel, setReverbLevel] = useState(0.25);
+  const [compressorOn, setCompressorOn] = useState(true);
+  const [compressorThreshold, setCompressorThreshold] = useState(-24);
+  const [effectsPanelOpen, setEffectsPanelOpen] = useState(false);
+
   const { job: stemJob, reset: resetStemJob, separate, getTrackAssignments } = useStemSeparator();
 
   function getClock(): MasterClock {
     if (!clockRef.current) clockRef.current = MasterClock.instance;
     return clockRef.current;
   }
+
+  // Initialize effects on client-side mount only
+  useEffect(() => {
+    getClock().ensureEffects();
+  }, []);
 
   const maxDuration = Math.max(...tracks.map((t) => t.startOffset + t.duration), 10);
 
@@ -89,6 +101,22 @@ export default function EditorPage() {
       clock.onTick = null;
     };
   }, [maxDuration]);
+
+  // Sync master reverb level to engine
+  useEffect(() => {
+    const clock = clockRef.current;
+    if (clock?.effectsReady) {
+      clock.reverbWetGain.gain.value = reverbLevel;
+    }
+  }, [reverbLevel]);
+
+  // Sync compressor params to engine
+  useEffect(() => {
+    const clock = clockRef.current;
+    if (clock?.effectsReady) {
+      clock.compressorNode.threshold.value = compressorOn ? compressorThreshold : 0;
+    }
+  }, [compressorOn, compressorThreshold]);
 
   useEffect(() => {
     return () => {
@@ -370,7 +398,6 @@ export default function EditorPage() {
   }, [stemJob.status, stemJob.result, getTrackAssignments]);
 
   const anySolo = tracks.some((t) => t.solo);
-
   const isProcessing = stemJob.status === "uploading" || stemJob.status === "processing";
 
   return (
@@ -538,6 +565,98 @@ export default function EditorPage() {
         )}
       </div>
 
+      {/* Master Effects Panel */}
+      <div className="rounded-lg bg-daw-surface-2 border border-daw-border overflow-hidden">
+        <button
+          onClick={() => setEffectsPanelOpen(!effectsPanelOpen)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-daw-text-muted hover:text-daw-text transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Waves className="w-4 h-4 text-daw-accent" />
+            <span className="font-medium">Master Effects</span>
+            <span className="text-[10px] text-daw-text-dim hidden sm:inline">
+              Reverb Send / Compressor
+            </span>
+          </span>
+          {effectsPanelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {effectsPanelOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 pb-4 pt-1 border-t border-daw-border grid grid-cols-1 sm:grid-cols-2 gap-4"
+          >
+            {/* Reverb control */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-daw-text-muted uppercase tracking-wider">
+                  Reverb
+                </span>
+                <span className="text-xs font-mono tabular-nums text-daw-pink">
+                  {Math.round(reverbLevel * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={reverbLevel}
+                onChange={(e) => setReverbLevel(parseFloat(e.target.value))}
+                className="w-full h-1.5 accent-daw-pink"
+              />
+              <div className="flex justify-between text-[9px] text-daw-text-dim">
+                <span>Dry</span>
+                <span>Wet</span>
+              </div>
+            </div>
+
+            {/* Compressor control */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-daw-text-muted uppercase tracking-wider">
+                  <Gauge className="w-3 h-3 inline mr-1" />
+                  Compressor
+                </span>
+                <button
+                  onClick={() => setCompressorOn(!compressorOn)}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+                    compressorOn
+                      ? "bg-daw-cyan/20 text-daw-cyan border border-daw-cyan/30"
+                      : "bg-daw-surface-3 text-daw-text-dim border border-daw-border"
+                  )}
+                >
+                  {compressorOn ? "ON" : "OFF"}
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-daw-text-dim">Threshold</span>
+                <span className="text-xs font-mono tabular-nums text-daw-cyan">
+                  {compressorThreshold} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-60"
+                max="0"
+                step="1"
+                value={compressorThreshold}
+                onChange={(e) => setCompressorThreshold(parseInt(e.target.value))}
+                disabled={!compressorOn}
+                className="w-full h-1.5 accent-daw-cyan disabled:opacity-30"
+              />
+              <div className="flex justify-between text-[9px] text-daw-text-dim">
+                <span>-60 dB</span>
+                <span>0 dB</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
       {/* Timeline ruler */}
       <div className="h-6 bg-daw-surface-2 rounded-t-lg relative overflow-hidden border-b border-daw-border">
         {Array.from({ length: Math.ceil(maxDuration) }).map((_, i) => (
@@ -596,8 +715,10 @@ export default function EditorPage() {
                   isPlaying={isPlaying}
                   playheadTime={playheadTime}
                   seekVersion={seekVersion}
-                  ctx={getClock().ctx}
-                  masterBus={getClock().masterBus}
+                  ctx={clockRef.current?.ctx ?? null}
+                  masterBus={clockRef.current?.masterBus ?? null}
+                  reverbWetGain={clockRef.current?.effectsReady ? clockRef.current.reverbWetGain : null}
+                  effectsReady={clockRef.current?.effectsReady ?? false}
                   onToggleMute={() =>
                     setTracks((prev) =>
                       prev.map((t) =>
@@ -632,6 +753,13 @@ export default function EditorPage() {
                     setTracks((prev) =>
                       prev.map((t) =>
                         t.id === track.id ? { ...t, pan: v } : t,
+                      ),
+                    )
+                  }
+                  onReverbSendChange={(v) =>
+                    setTracks((prev) =>
+                      prev.map((t) =>
+                        t.id === track.id ? { ...t, reverbSend: v } : t,
                       ),
                     )
                   }
