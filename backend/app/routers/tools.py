@@ -780,6 +780,8 @@ class VocalPrepResponse(BaseModel):
     status: str = "queued"
     pitch_data: list[dict] = []
     vocals_url: str = ""
+    backing_url: str = ""
+    instrumental_url: str = ""
     duration_secs: float = 0.0
 
 
@@ -829,9 +831,23 @@ async def vocal_prep_status(job_id: str):
         vocals_path = result.get("vocals_path", "")
         duration = pitch_contour[-1]["time"] if pitch_contour else 0
 
+        stems_dir_name = Path(result.get("stems_dir", "")).name
+        model = result.get("model", "htdemucs")
+
         if vocals_path:
-            vocals_name = Path(vocals_path).name
-            resp.vocals_url = f"/api/audio/stems/{result['model']}/{Path(result['stems_dir']).name}/{vocals_name}"
+            resp.vocals_url = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(vocals_path).name}"
+
+        backing_stems = result.get("backing_stems", {})
+        other_keys = [k for k in backing_stems if k != "vocals"]
+        if other_keys:
+            first_other = other_keys[0]
+            resp.backing_url = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(backing_stems[first_other]).name}"
+        for k in ["other", "no_vocals", "instrumental"]:
+            if k in backing_stems:
+                resp.instrumental_url = f"/api/audio/stems/{model}/{stems_dir_name}/{Path(backing_stems[k]).name}"
+                break
+        if not resp.instrumental_url and other_keys:
+            resp.instrumental_url = resp.backing_url
 
         resp.pitch_data = pitch_contour
         resp.duration_secs = round(duration, 1)

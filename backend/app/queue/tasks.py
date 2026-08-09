@@ -45,11 +45,14 @@ def _run_vocal_prep(params: dict) -> dict:
     if not vocals_path:
         raise RuntimeError("No vocals stem produced")
     pitch_contour = _extract_pitch_contour(vocals_path)
+
+    backing_paths = {k: v for k, v in result["stems"].items() if k != "vocals"}
     return {
         "model": result["model"],
         "stems_dir": result["stems_dir"],
         "vocals_path": vocals_path,
         "pitch_contour": pitch_contour,
+        "backing_stems": backing_paths,
     }
 
 
