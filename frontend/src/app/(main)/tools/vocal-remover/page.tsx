@@ -21,18 +21,21 @@ export default function VocalRemoverPage() {
   const [removing, setRemoving] = useState(false);
   const [removerJobId, setRemoverJobId] = useState("");
   const [removerStatus, setRemoverStatus] = useState("");
+  const [removerError, setRemoverError] = useState("");
   const removerPollId = useRef<NodeJS.Timeout | null>(null);
 
   async function handleVocalRemove() {
     if (!removerFile) return;
     setRemoving(true);
     setRemoverStatus("");
+    setRemoverError("");
     try {
       const data = await api.tools.vocalRemove(removerFile);
       setRemoverJobId(data.filename.replace("instrumental_", "").replace(".wav", ""));
       setRemoverStatus("processing");
       pollRemover(data.filename.replace("instrumental_", "").replace(".wav", ""));
     } catch (err) {
+      setRemoverError(err instanceof Error ? err.message : "Failed to start vocal removal");
       setRemoverStatus("failed");
       setRemoving(false);
     }
@@ -49,12 +52,14 @@ export default function VocalRemoverPage() {
           setRemoving(false);
           clearInterval(t);
         } else if (attempts >= 300) {
+          setRemoverError("Vocal removal timed out after 10 minutes");
           setRemoverStatus("failed");
           setRemoving(false);
           clearInterval(t);
         }
       } catch {
         if (attempts >= 300) {
+          setRemoverError("Vocal removal timed out — server may be overloaded");
           setRemoverStatus("failed");
           setRemoving(false);
           clearInterval(t);
@@ -151,6 +156,13 @@ export default function VocalRemoverPage() {
             </>
           )}
         </Button>
+
+        {removerError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {removerError}
+          </div>
+        )}
 
         <AnimatePresence>
           {removerStatus === "ready" && removerJobId && (

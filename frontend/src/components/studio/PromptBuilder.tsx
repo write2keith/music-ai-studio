@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Wand2,
@@ -45,6 +45,13 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
   const [generating, setGenerating] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState("");
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   const handleEnhance = async () => {
     if (!prompt.trim()) return;
@@ -113,7 +120,7 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
           } else {
             const elapsed = Math.round((attempts * 2) / 60);
             setGeneratingStatus(`Generating audio... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
-            setTimeout(poll, 2000);
+            pollRef.current = setTimeout(poll, 2000);
           }
         } catch {
           if (attempts >= MAX_POLLS) {
@@ -121,11 +128,11 @@ export function PromptBuilder({ onGenerate }: { onGenerate?: () => void }) {
             setGeneratingStatus("");
             toast("error", "Generation timed out", "Unable to check status. The job may still be running on the server.");
           } else {
-            setTimeout(poll, 2000);
+            pollRef.current = setTimeout(poll, 2000);
           }
         }
       };
-      setTimeout(poll, 1500);
+      pollRef.current = setTimeout(poll, 1500);
     } catch (err) {
       setGenerating(false);
       setGeneratingStatus("");

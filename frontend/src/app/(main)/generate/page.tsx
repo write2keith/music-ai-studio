@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Scissors, Upload, AlertCircle, Music, FileAudio, Loader2, Download, Volume2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { api, ApiError } from "@/lib/api";
@@ -31,6 +31,13 @@ export default function SeparatePage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StemResult | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +73,7 @@ export default function SeparatePage() {
           } else {
             const elapsed = Math.round((attempts * 2) / 60);
             setStatus(`Separating stems... ${elapsed > 0 ? `(${elapsed}m elapsed)` : `(${jobResult.status})`}`);
-            setTimeout(poll, 2000);
+            pollRef.current = setTimeout(poll, 2000);
           }
         } catch {
           if (attempts >= MAX_POLLS) {
@@ -74,11 +81,11 @@ export default function SeparatePage() {
             setLoading(false);
             setStatus("");
           } else {
-            setTimeout(poll, 2000);
+            pollRef.current = setTimeout(poll, 2000);
           }
         }
       };
-      setTimeout(poll, 1000);
+      pollRef.current = setTimeout(poll, 1000);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start separation");
       setLoading(false);
