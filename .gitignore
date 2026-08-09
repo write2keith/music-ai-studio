@@ -9,4 +9,4 @@ __pycache__/
 output/
 
 # Env
-.env.local
+.env.localbackend/.env
