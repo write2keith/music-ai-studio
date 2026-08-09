@@ -319,7 +319,7 @@ export function TrackRow({
         ) : (
           <div
             className={cn(
-              "flex-1 h-14 rounded bg-daw-surface-1 relative transition-colors",
+              "flex-1 min-w-0 h-14 rounded bg-daw-surface-1 relative transition-colors",
               isDragOver && "ring-1 ring-daw-accent bg-daw-accent/5",
             )}
             onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}

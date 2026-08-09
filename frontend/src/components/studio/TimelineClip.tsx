@@ -294,7 +294,7 @@ export function TimelineClip({
   return (
     <div
       ref={containerRef}
-      className="flex-1 h-14 rounded bg-daw-surface-1 overflow-x-auto overflow-y-hidden relative"
+      className="flex-1 min-w-0 h-14 rounded bg-daw-surface-1 overflow-x-auto overflow-y-hidden relative"
       style={{ cursor }}
     >
       <canvas

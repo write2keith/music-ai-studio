@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, Loader2, AlertCircle, Music, Upload, FileAudio, Play, Pause, Square, SkipForward, SkipBack, ListMusic } from "lucide-react";
+import { Download, Loader2, AlertCircle, Music, FileAudio, Play, Pause, Square, SkipForward, SkipBack, ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import TabRenderer from "@/components/TabRenderer";
 import { FretboardView } from "@/components/studio/FretboardView";
 import { PianoView } from "@/components/studio/PianoView";
 import { StaveRenderer } from "@/components/studio/StaveRenderer";
-import { synthesizeNotes, getNotesAtTime } from "@/lib/note-synth";
+import { getNotesAtTime } from "@/lib/note-synth";
 
 const NOTE_NAMES_SHORT = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -35,7 +35,7 @@ function nameToMidi(name: string): number {
   return (octave + 1) * 12 + noteIdx;
 }
 
-function drawSynthWaveform(
+function drawWaveform(
   canvas: HTMLCanvasElement,
   buffer: AudioBuffer,
   currentTime: number,
@@ -45,6 +45,7 @@ function drawSynthWaveform(
   const rect = canvas.getBoundingClientRect();
   const w = rect.width;
   const h = rect.height;
+  if (w <= 0 || h <= 0) return;
 
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -53,7 +54,6 @@ function drawSynthWaveform(
 
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-
   ctx.scale(dpr, dpr);
 
   ctx.fillStyle = "#181825";
@@ -105,6 +105,7 @@ function drawSynthWaveform(
 export default function GuitarTabPage() {
   // Upload state
   const [tabFile, setTabFile] = useState<File | null>(null);
+  const [tabFileUrl, setTabFileUrl] = useState<string>("");
   const [tabTuning, setTabTuning] = useState("standard");
   const [tabGenerating, setTabGenerating] = useState(false);
   const [tabError, setTabError] = useState("");
@@ -121,10 +122,11 @@ export default function GuitarTabPage() {
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [synthingAudio, setSynthingAudio] = useState(false);
+  const [loadingAudio, setLoadingAudio] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("tab");
 
-  // Audio context refs
+  // Refs for playback (avoids stale closures in RAF)
+  const isPlayingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef(0);
@@ -136,43 +138,47 @@ export default function GuitarTabPage() {
   const notes = (tabResult?.notes ?? []) as TabNote[];
   const duration = audioBuffer ? audioBuffer.duration : (tabResult?.duration_secs ?? 0);
   const activeNotes = getNotesAtTime(notes, currentTime);
-  const hasAudio = audioBuffer !== null;
 
-  // ── Synth audio from notes ──
-  const synthAudio = useCallback(async (result: GuitarTabResult) => {
-    if (result.notes.length === 0) return;
-    setSynthingAudio(true);
+  // Keep ref in sync with state
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // ── Decode original audio file for playback ──
+  const decodeAudio = useCallback(async (file: File): Promise<AudioBuffer | null> => {
     try {
-      const buffer = await synthesizeNotes(
-        result.notes as TabNote[],
-        result.duration_secs,
-      );
-      setAudioBuffer(buffer);
+      const ctx = new AudioContext();
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = await ctx.decodeAudioData(arrayBuffer);
+      ctx.close();
+      return buffer;
     } catch {
-      // synthesis failed, no audio preview
+      return null;
     }
-    setSynthingAudio(false);
   }, []);
 
-  // Auto-synth when result arrives
+  // Auto-decode when result arrives
   useEffect(() => {
-    if (tabResult && tabResult.notes.length > 0 && !audioBuffer) {
-      synthAudio(tabResult);
+    if (tabResult && tabResult.notes.length > 0 && !audioBuffer && tabFile) {
+      setLoadingAudio(true);
+      decodeAudio(tabFile).then((buf) => {
+        if (buf) setAudioBuffer(buf);
+        setLoadingAudio(false);
+      });
     }
-  }, [tabResult, audioBuffer, synthAudio]);
+  }, [tabResult, audioBuffer, tabFile, decodeAudio]);
 
-  // ── Waveform drawing (RAF) ──
+  // ── Waveform drawing ──
   const drawWaveformFrame = useCallback(() => {
     const canvas = waveformCanvasRef.current;
     if (!canvas || !audioBuffer) return;
-    drawSynthWaveform(canvas, audioBuffer, currentTime, isPlaying);
+    drawWaveform(canvas, audioBuffer, currentTime, isPlaying);
   }, [audioBuffer, currentTime, isPlaying]);
 
   useEffect(() => {
     drawWaveformFrame();
   }, [drawWaveformFrame]);
 
-  // Resize observer for waveform
   useEffect(() => {
     const canvas = waveformCanvasRef.current;
     if (!canvas) return;
@@ -181,48 +187,56 @@ export default function GuitarTabPage() {
     return () => observer.disconnect();
   }, [drawWaveformFrame]);
 
-  // ── Playback controls ──
-  const stopPlayback = useCallback(() => {
+  // ── Playback engine ──
+  const stopSource = useCallback(() => {
     if (sourceRef.current) {
       try { sourceRef.current.stop(); } catch {}
       sourceRef.current = null;
     }
+  }, []);
+
+  const stopRaf = useCallback(() => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     }
-    setIsPlaying(false);
-    setCurrentTime(0);
   }, []);
 
-  const startRaf = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  const startRafLoop = useCallback(() => {
+    stopRaf();
     const tick = () => {
-      if (!audioCtxRef.current || !isPlaying) return;
+      if (!isPlayingRef.current || !audioCtxRef.current) return;
       const elapsed = audioCtxRef.current.currentTime - startTimeRef.current + startOffsetRef.current;
       const clamped = Math.min(elapsed, duration);
       setCurrentTime(clamped);
-      if (clamped >= duration) {
-        stopPlayback();
+      if (clamped >= duration - 0.05) {
+        stopSource();
+        stopRaf();
+        setIsPlaying(false);
+        isPlayingRef.current = false;
         return;
       }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [duration, isPlaying, stopPlayback]);
+  }, [duration, stopSource, stopRaf]);
 
-  const play = useCallback(() => {
+  const play = useCallback(async () => {
     if (!audioBuffer) return;
+
+    // Create or resume AudioContext (handles autoplay restrictions)
     if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
       audioCtxRef.current = new AudioContext();
     }
     const ctx = audioCtxRef.current;
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
 
-    // If paused, resume from currentTime
-    const offset = isPlaying ? currentTime : currentTime;
-    stopPlayback();
+    stopSource();
+    stopRaf();
 
+    const offset = currentTime;
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     const gain = ctx.createGain();
@@ -234,44 +248,41 @@ export default function GuitarTabPage() {
     sourceRef.current = source;
     startTimeRef.current = ctx.currentTime;
     startOffsetRef.current = offset;
+
     setIsPlaying(true);
+    isPlayingRef.current = true;
 
     source.onended = () => {
       setIsPlaying(false);
+      isPlayingRef.current = false;
       setCurrentTime(0);
     };
 
-    startRaf();
-  }, [audioBuffer, currentTime, isPlaying, stopPlayback, startRaf]);
+    startRafLoop();
+  }, [audioBuffer, currentTime, stopSource, stopRaf, startRafLoop]);
 
   const pause = useCallback(() => {
-    // Stop source, keep currentTime for resume
-    if (sourceRef.current) {
-      try { sourceRef.current.stop(); } catch {}
-      sourceRef.current = null;
-    }
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = 0;
-    }
+    stopSource();
+    stopRaf();
     setIsPlaying(false);
-    // currentTime is already set from RAF
-  }, []);
+    isPlayingRef.current = false;
+  }, [stopSource, stopRaf]);
 
-  const seek = useCallback((time: number) => {
+  const stopPlayback = useCallback(() => {
+    stopSource();
+    stopRaf();
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+    setCurrentTime(0);
+  }, [stopSource, stopRaf]);
+
+  const seek = useCallback(async (time: number) => {
     const clamped = Math.max(0, Math.min(duration, time));
     setCurrentTime(clamped);
 
-    if (isPlaying) {
-      // Restart playback from new position
-      if (sourceRef.current) {
-        try { sourceRef.current.stop(); } catch {}
-        sourceRef.current = null;
-      }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = 0;
-      }
+    if (isPlayingRef.current) {
+      stopSource();
+      stopRaf();
 
       const ctx = audioCtxRef.current;
       if (!ctx || !audioBuffer) return;
@@ -290,13 +301,13 @@ export default function GuitarTabPage() {
 
       source.onended = () => {
         setIsPlaying(false);
+        isPlayingRef.current = false;
         setCurrentTime(0);
       };
-      startRaf();
+      startRafLoop();
     }
-  }, [duration, isPlaying, audioBuffer, startRaf]);
+  }, [duration, audioBuffer, stopSource, stopRaf, startRafLoop]);
 
-  // Waveform click-to-seek
   const handleWaveformSeek = useCallback(
     (clientX: number) => {
       const canvas = waveformCanvasRef.current;
@@ -311,17 +322,26 @@ export default function GuitarTabPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (sourceRef.current) {
-        try { sourceRef.current.stop(); } catch {}
-      }
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      stopSource();
+      stopRaf();
       if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
         audioCtxRef.current.close();
       }
     };
-  }, []);
+  }, [stopSource, stopRaf]);
 
   // ── API handlers ──
+  function setFile(f: File) {
+    // Revoke old URL
+    if (tabFileUrl) URL.revokeObjectURL(tabFileUrl);
+    setTabFile(f);
+    setTabFileUrl(URL.createObjectURL(f));
+    setTabResult(null);
+    setTabError("");
+    setAudioBuffer(null);
+    stopPlayback();
+  }
+
   async function handleGuitarTab() {
     if (!tabFile) return;
     setTabGenerating(true);
@@ -371,14 +391,16 @@ export default function GuitarTabPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.code === "Space") {
+      if (e.code === "Space" && tabResult) {
         e.preventDefault();
-        isPlaying ? pause() : play();
+        isPlayingRef.current ? pause() : play();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isPlaying, play, pause]);
+  }, [play, pause, tabResult]);
+
+  const hasResult = tabResult !== null && tabResult.notes.length > 0;
 
   return (
     <div className="max-w-2xl">
@@ -400,7 +422,7 @@ export default function GuitarTabPage() {
           onDrop={(e) => {
             e.preventDefault(); e.stopPropagation();
             const f = e.dataTransfer.files[0];
-            if (f) { setTabFile(f); setTabResult(null); setTabError(""); setAudioBuffer(null); }
+            if (f) setFile(f);
           }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -419,7 +441,7 @@ export default function GuitarTabPage() {
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) { setTabFile(f); setTabResult(null); setTabError(""); setAudioBuffer(null); }
+              if (f) setFile(f);
             }}
           />
           {tabFile ? (
@@ -481,17 +503,17 @@ export default function GuitarTabPage() {
           </div>
         )}
 
-        {/* Audio synthesizing indicator */}
-        {synthingAudio && (
+        {/* Audio loading indicator */}
+        {loadingAudio && (
           <div className="flex items-center gap-2 text-xs text-daw-text-dim">
             <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
-            Synthesizing audio preview...
+            Decoding audio...
           </div>
         )}
 
         {/* Result + Player */}
         <AnimatePresence>
-          {tabResult && tabResult.notes.length > 0 && (
+          {hasResult && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -526,8 +548,8 @@ export default function GuitarTabPage() {
                 </button>
               </div>
 
-              {/* Transport controls */}
-              {hasAudio && (
+              {/* Audio Player & Timeline Scrubber */}
+              {audioBuffer && (
                 <div className="space-y-3">
                   {/* Waveform scrubber */}
                   <div
@@ -543,7 +565,6 @@ export default function GuitarTabPage() {
                     </div>
                   </div>
 
-                  {/* Drag-seek global handlers */}
                   <DragSeekHandler
                     isDragging={isDragging}
                     onSeek={(x) => handleWaveformSeek(x)}
@@ -558,10 +579,10 @@ export default function GuitarTabPage() {
                       <SkipBack className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={isPlaying ? pause : play}
+                      onClick={isPlayingRef.current ? pause : play}
                       className="p-2 rounded-full bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 transition-colors"
                     >
-                      {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      {isPlayingRef.current ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                     </button>
                     <button
                       onClick={stopPlayback}
@@ -581,30 +602,32 @@ export default function GuitarTabPage() {
                   </div>
                 </div>
               )}
-
-              {/* Synced fretboard */}
-              {hasAudio && (
-                <div className="space-y-1">
-                  <h3 className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold flex items-center gap-1">
-                    <Music className="w-3 h-3" /> Fretboard (EADGBE)
-                  </h3>
-                  <FretboardView
-                    tuning={tabResult.tuning}
-                    activeNotes={activeNotes}
-                    allNotes={notes}
-                  />
+              {!audioBuffer && !loadingAudio && (
+                <div className="flex items-center gap-2 text-xs text-daw-text-dim">
+                  <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
+                  Loading audio...
                 </div>
               )}
 
-              {/* Synced piano */}
-              {hasAudio && (
-                <div className="space-y-1">
-                  <h3 className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold flex items-center gap-1">
-                    <Music className="w-3 h-3" /> Piano Keyboard
-                  </h3>
-                  <PianoView activeNotes={activeNotes} allNotes={notes} />
-                </div>
-              )}
+              {/* Interactive Fretboard */}
+              <div className="space-y-1">
+                <h3 className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold flex items-center gap-1">
+                  <Music className="w-3 h-3" /> Fretboard (EADGBE)
+                </h3>
+                <FretboardView
+                  tuning={tabResult.tuning}
+                  activeNotes={activeNotes}
+                  allNotes={notes}
+                />
+              </div>
+
+              {/* Piano Keyboard */}
+              <div className="space-y-1">
+                <h3 className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold flex items-center gap-1">
+                  <Music className="w-3 h-3" /> Piano Keyboard
+                </h3>
+                <PianoView activeNotes={activeNotes} allNotes={notes} />
+              </div>
 
               {/* Tab / Staff toggle */}
               <div className="flex items-center gap-2">
@@ -641,7 +664,7 @@ export default function GuitarTabPage() {
                     tuning={tabResult.tuning}
                     durationSecs={tabResult.duration_secs}
                     currentTime={currentTime}
-                    isPlaying={isPlaying}
+                    isPlaying={isPlayingRef.current}
                   />
                 </div>
               ) : (

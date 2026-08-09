@@ -434,7 +434,7 @@ export default function EditorPage() {
 
   return (
     <div
-      className="max-w-4xl space-y-4"
+      className="max-w-4xl space-y-4 overflow-hidden"
       onDragOver={(e) => e.preventDefault()}
       onDrop={isProcessing ? undefined : handleGlobalDrop}
     >
@@ -735,12 +735,12 @@ export default function EditorPage() {
       </div>
 
       {/* Tracks */}
-      <motion.div className="space-y-1" layout>
+      <motion.div className="space-y-1 overflow-hidden" layout>
         {tracks.map((track) => {
           const effectiveAudible = anySolo ? track.solo && !track.muted : !track.muted;
           return (
-            <div key={track.id} className="flex items-start gap-1">
-              <div className="flex-1">
+            <div key={track.id} className="flex items-start gap-1 min-w-0">
+              <div className="flex-1 min-w-0">
                 <TrackRow
                   track={track}
                   effectiveAudible={effectiveAudible}
