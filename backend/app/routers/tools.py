@@ -67,6 +67,17 @@ async def _run_blocking(fn, *args, **kwargs):
     return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
 
 
+async def _read_upload(file: UploadFile, max_mb: int = 100) -> bytes:
+    content = await file.read()
+    size_mb = len(content) / (1024 * 1024)
+    if size_mb > max_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({size_mb:.1f} MB). Maximum is {max_mb} MB.",
+        )
+    return content
+
+
 @router.post("/youtube", response_model=YouTubeResponse)
 async def download_youtube(body: YouTubeRequest):
     url = body.url.strip()
@@ -1612,7 +1623,7 @@ async def voice_clean(
         upload_dir.mkdir(parents=True, exist_ok=True)
         ext = Path(file.filename).suffix or ".wav"
         upload_path = upload_dir / f"vc_{uuid.uuid4().hex}{ext}"
-        content = await file.read()
+        content = await _read_upload(file)
         upload_path.write_bytes(content)
 
         from ..services.cleaner import clean_voice
@@ -1650,7 +1661,7 @@ async def lead_back_split(
         upload_dir.mkdir(parents=True, exist_ok=True)
         ext = Path(file.filename).suffix or ".wav"
         upload_path = upload_dir / f"lb_{uuid.uuid4().hex}{ext}"
-        content = await file.read()
+        content = await _read_upload(file)
         upload_path.write_bytes(content)
 
         # First separate vocals
@@ -1697,7 +1708,7 @@ async def voice_change(
         upload_dir.mkdir(parents=True, exist_ok=True)
         ext = Path(file.filename).suffix or ".wav"
         upload_path = upload_dir / f"vg_{uuid.uuid4().hex}{ext}"
-        content = await file.read()
+        content = await _read_upload(file)
         upload_path.write_bytes(content)
 
         from ..services.voice_changer import change_voice
@@ -1736,7 +1747,7 @@ async def dereverb(
         upload_dir.mkdir(parents=True, exist_ok=True)
         ext = Path(file.filename).suffix or ".wav"
         upload_path = upload_dir / f"dr_{uuid.uuid4().hex}{ext}"
-        content = await file.read()
+        content = await _read_upload(file)
         upload_path.write_bytes(content)
 
         from ..services.dereverb import remove_reverb
