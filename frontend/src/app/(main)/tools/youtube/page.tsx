@@ -73,7 +73,7 @@ export default function YouTubePage() {
       const cleanUrl = url.trim().split("&list=")[0].split("?si=")[0];
       const data = await api.tools.youtube(cleanUrl, youtubeMp3);
 
-      clearInterval(timerRef.current!);
+      if (timerRef.current) clearInterval(timerRef.current);
       if (data) {
         setResult(data);
         setHistory((prev) => [data, ...prev.slice(0, 9)]);
@@ -82,7 +82,7 @@ export default function YouTubePage() {
         setError("No data returned from server");
       }
     } catch (err) {
-      clearInterval(timerRef.current!);
+      if (timerRef.current) clearInterval(timerRef.current);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || "Network error");
     }

@@ -57,6 +57,7 @@ export default function VocalCoachPage() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const recordStartRef = useRef<number>(0);
+  const prepPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function startRecording() {
     try {
@@ -172,27 +173,31 @@ export default function VocalCoachPage() {
       setVocalPrepStatus("Separating vocals...");
 
       let polls = 0;
-      const poll = setInterval(async () => {
+      prepPollRef.current = setInterval(async () => {
         polls++;
         try {
           const status = await api.tools.vocalPrepStatus(job.job_id);
           if (status.status === "completed") {
-            clearInterval(poll);
+            clearInterval(prepPollRef.current!);
+            prepPollRef.current = null;
             setVocalPrepStatus("ready");
             setVocalPrepPitch(status.pitch_data || []);
             setVocalPrepUrl(status.vocals_url || "");
           } else if (status.status === "failed") {
-            clearInterval(poll);
+            clearInterval(prepPollRef.current!);
+            prepPollRef.current = null;
             setVocalPrepStatus("failed");
             setVocalError("Vocal separation failed");
           } else if (polls >= 300) {
-            clearInterval(poll);
+            clearInterval(prepPollRef.current!);
+            prepPollRef.current = null;
             setVocalPrepStatus("failed");
             setVocalError("Vocal prep timed out");
           }
         } catch {
           if (polls >= 300) {
-            clearInterval(poll);
+            clearInterval(prepPollRef.current!);
+            prepPollRef.current = null;
             setVocalPrepStatus("failed");
             setVocalError("Vocal prep timed out");
           }
@@ -224,6 +229,8 @@ export default function VocalCoachPage() {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (prepPollRef.current) clearInterval(prepPollRef.current);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (vocalRecordingUrl) URL.revokeObjectURL(vocalRecordingUrl);
       if (vocalRefUrl) URL.revokeObjectURL(vocalRefUrl);
     };
