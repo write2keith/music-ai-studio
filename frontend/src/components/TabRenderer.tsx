@@ -7,6 +7,8 @@ interface TabRendererProps {
   notes: TabNote[];
   tuning: string[];
   durationSecs: number;
+  currentTime?: number;
+  isPlaying?: boolean;
 }
 
 const STRING_COUNT = 6;
@@ -18,9 +20,26 @@ const HEADER_HEIGHT = 22;
 const PADDING_TOP = 8;
 const PADDING_BOTTOM = 8;
 
-export default function TabRenderer({ notes, tuning, durationSecs }: TabRendererProps) {
+export default function TabRenderer({
+  notes,
+  tuning,
+  durationSecs,
+  currentTime = -1,
+  isPlaying = false,
+}: TabRendererProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
+  const maxTime = durationSecs || notes[notes.length - 1]?.end_time || notes.length;
+  const logicalW = Math.max(notes.length * NOTE_MIN_WIDTH + PADDING_LEFT + PADDING_RIGHT, 400);
+  const usableWidth = logicalW - PADDING_LEFT - PADDING_RIGHT;
+
+  function timeToX(t: number): number {
+    return PADDING_LEFT + (t / maxTime) * usableWidth;
+  }
+
+  // Draw static tab
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || notes.length === 0) return;
@@ -32,28 +51,17 @@ export default function TabRenderer({ notes, tuning, durationSecs }: TabRenderer
     const rowHeight = HEADER_HEIGHT + staffHeight + PADDING_TOP + PADDING_BOTTOM;
     const totalHeight = totalRows * rowHeight;
 
-    const baseWidth = Math.max(notes.length * NOTE_MIN_WIDTH + PADDING_LEFT + PADDING_RIGHT, 400);
-    const logicalW = baseWidth;
-    const logicalH = totalHeight;
-
     canvas.width = logicalW * dpr;
-    canvas.height = logicalH * dpr;
+    canvas.height = totalHeight * dpr;
     canvas.style.width = logicalW + "px";
-    canvas.style.height = logicalH + "px";
+    canvas.style.height = totalHeight + "px";
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.scale(dpr, dpr);
 
-    const maxTime = durationSecs || notes[notes.length - 1]?.end_time || notes.length;
-    const usableWidth = logicalW - PADDING_LEFT - PADDING_RIGHT;
-
-    function timeToX(t: number): number {
-      return PADDING_LEFT + (t / maxTime) * usableWidth;
-    }
-
-    ctx.clearRect(0, 0, logicalW, logicalH);
+    ctx.clearRect(0, 0, logicalW, totalHeight);
 
     for (let row = 0; row < totalRows; row++) {
       const yOffset = row * rowHeight;
@@ -71,7 +79,6 @@ export default function TabRenderer({ notes, tuning, durationSecs }: TabRenderer
         ctx.fillText(t.toFixed(1) + "s", x, yOffset + 14);
       }
 
-      // String area background
       const staffTop = yOffset + HEADER_HEIGHT + PADDING_TOP;
       ctx.fillStyle = "#0f0f1a";
       ctx.fillRect(0, staffTop, logicalW, staffHeight);
@@ -88,9 +95,10 @@ export default function TabRenderer({ notes, tuning, durationSecs }: TabRenderer
       // String lines
       for (let s = 0; s < STRING_COUNT; s++) {
         const y = staffTop + s * STRING_SPACING + STRING_SPACING / 2;
-        ctx.strokeStyle = s === 0 || s === STRING_COUNT - 1
-          ? "rgba(168, 85, 247, 0.4)"
-          : "rgba(107, 114, 128, 0.25)";
+        ctx.strokeStyle =
+          s === 0 || s === STRING_COUNT - 1
+            ? "rgba(168, 85, 247, 0.4)"
+            : "rgba(107, 114, 128, 0.25)";
         ctx.lineWidth = s === 0 || s === STRING_COUNT - 1 ? 1.5 : 0.8;
         ctx.beginPath();
         ctx.moveTo(PADDING_LEFT, y);
@@ -98,7 +106,7 @@ export default function TabRenderer({ notes, tuning, durationSecs }: TabRenderer
         ctx.stroke();
       }
 
-      // Beat markers (every beat ~ 1 note width)
+      // Beat markers
       ctx.strokeStyle = "rgba(34, 211, 238, 0.12)";
       ctx.lineWidth = 0.5;
       ctx.setLineDash([3, 8]);
@@ -115,52 +123,84 @@ export default function TabRenderer({ notes, tuning, durationSecs }: TabRenderer
       // Notes
       for (const note of notes) {
         const x = timeToX(note.start_time);
-        const s = STRING_COUNT - 1 - note.string; // invert: string 0 (low E) = bottom
+        const s = STRING_COUNT - 1 - note.string;
         const y = staffTop + s * STRING_SPACING + STRING_SPACING / 2;
 
-        // Note highlight
-        const durationPx = Math.max(12, (note.end_time - note.start_time) / maxTime * usableWidth);
+        const durationPx = Math.max(
+          12,
+          ((note.end_time - note.start_time) / maxTime) * usableWidth,
+        );
         ctx.fillStyle = "rgba(251, 146, 60, 0.15)";
         ctx.fillRect(x - 2, y - STRING_SPACING / 2 + 2, durationPx, STRING_SPACING - 4);
 
-        // Fret number
         ctx.fillStyle = "#fb923c";
         ctx.font = "bold 11px monospace";
         ctx.textAlign = "center";
         ctx.fillText(String(note.fret), x, y + 4);
 
-        // Note name below
         if (note.note_name) {
           ctx.fillStyle = "#6b7280";
           ctx.font = "7px monospace";
           ctx.fillText(note.note_name, x, y + STRING_SPACING / 2);
         }
       }
-
-      // Playhead line (just decorative end marker)
-      const endX = timeToX(maxTime);
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.3)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([2, 4]);
-      ctx.beginPath();
-      ctx.moveTo(endX, staffTop);
-      ctx.lineTo(endX, staffTop + staffHeight);
-      ctx.stroke();
-      ctx.setLineDash([]);
     }
-  }, [notes, tuning, durationSecs]);
+  }, [notes, tuning, durationSecs, logicalW, maxTime, usableWidth]);
+
+  // Auto-scroll to keep playhead visible
+  useEffect(() => {
+    if (!isPlaying || currentTime < 0) return;
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    const playheadX = timeToX(currentTime);
+    const viewLeft = scrollEl.scrollLeft;
+    const viewRight = viewLeft + scrollEl.clientWidth;
+    const margin = 120;
+
+    if (playheadX > viewRight - margin) {
+      scrollEl.scrollTo({ left: playheadX - scrollEl.clientWidth + margin, behavior: "smooth" });
+    } else if (playheadX < viewLeft + margin) {
+      scrollEl.scrollTo({ left: Math.max(0, playheadX - margin), behavior: "smooth" });
+    }
+  }, [currentTime, isPlaying, timeToX]);
 
   if (notes.length === 0) return null;
 
-  const logicalW = Math.max(notes.length * NOTE_MIN_WIDTH + PADDING_LEFT + PADDING_RIGHT, 400);
+  const totalHeight = HEADER_HEIGHT + STRING_COUNT * STRING_SPACING + PADDING_TOP + PADDING_BOTTOM;
+  const staffTop = HEADER_HEIGHT + PADDING_TOP;
+  const staffHeight = STRING_COUNT * STRING_SPACING;
+  const fullHeight = totalHeight;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-orange-400/20">
-      <canvas
-        ref={canvasRef}
-        style={{ height: "auto", minWidth: "100%" }}
-        className="block"
-      />
+    <div ref={scrollRef} className="overflow-x-auto rounded-lg border border-orange-400/20 relative">
+      <div ref={containerRef} className="relative" style={{ width: logicalW, height: fullHeight }}>
+        <canvas ref={canvasRef} style={{ height: "auto", minWidth: "100%" }} className="block" />
+
+        {/* Playhead overlay */}
+        {isPlaying && currentTime >= 0 && (
+          <div
+            className="absolute top-0 pointer-events-none transition-[left] duration-75 ease-linear"
+            style={{
+              left: `${timeToX(currentTime)}px`,
+              height: `${fullHeight}px`,
+              width: "2px",
+              background: "#22d3ee",
+              boxShadow: "0 0 8px rgba(34, 211, 238, 0.6)",
+            }}
+          >
+            <div
+              className="absolute top-0 -translate-x-1/2"
+              style={{
+                width: 10,
+                height: 10,
+                background: "#22d3ee",
+                clipPath: "polygon(50% 100%, 0% 0%, 100% 0%)",
+              }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
