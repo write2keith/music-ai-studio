@@ -1195,9 +1195,15 @@ def _do_chord_detect(tmp_path: str, output_dir: str):
                 p.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
 
-    result = _detect_chords_polyphonic(wav_path)
+    result = _detect_chords_ml(wav_path)
     Path(wav_path).unlink(missing_ok=True)
     return result
+
+
+def _detect_chords_ml(audio_path: str) -> dict:
+    from ..services.chord_detection import ChordDetector
+    detector = ChordDetector()
+    return detector.detect(audio_path)
 
 
 # ── Pitch & Tempo Adjustment ──────────────────────────────────
