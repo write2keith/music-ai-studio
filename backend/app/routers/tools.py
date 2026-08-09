@@ -206,7 +206,8 @@ def _do_compress(
 ) -> dict:
     import numpy as np
     import scipy.io.wavfile as wav
-    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir = Path(settings.EDITS_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = Path(tmp_path_str)
 
     wav_path = tmp_path
