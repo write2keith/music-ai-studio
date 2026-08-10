@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 import logging
 import asyncio
+import numpy as np
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, Query, WebSocket
 from pydantic import BaseModel
 
 from ..config import get_settings
@@ -2463,6 +2464,7 @@ class VoiceChangeResponse(BaseModel):
     duration: float = 0.0
     semitones: int = 0
     formant_shift: float = 0.0
+    method: str = ""
 
 
 @router.post("/voice-change", response_model=VoiceChangeResponse)
@@ -2470,6 +2472,7 @@ async def voice_change(
     file: UploadFile = File(...),
     semitones: int = Form(default=0, ge=-12, le=12),
     formant_shift: float = Form(default=0.0, ge=-6.0, le=6.0),
+    method: str = Form(default="auto"),
 ):
     try:
         upload_dir = Path(settings.UPLOAD_DIR)
@@ -2480,7 +2483,7 @@ async def voice_change(
         upload_path.write_bytes(content)
 
         from ..services.voice_changer import change_voice
-        result = await _run_blocking(change_voice, str(upload_path), semitones, formant_shift)
+        result = await _run_blocking(change_voice, str(upload_path), semitones, formant_shift, method)
 
         filename = Path(result["changed_path"]).name
         return VoiceChangeResponse(
@@ -2490,9 +2493,96 @@ async def voice_change(
             duration=result["duration"],
             semitones=result["semitones"],
             formant_shift=result["formant_shift"],
+            method=result.get("method", method),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Voice Changer WebSocket Streaming ──────────────────────────
+# Real-time low-latency preview via WebSocket chunk streaming.
+# Client sends raw PCM float32 chunks (1024 samples @ 16kHz mono).
+# Server processes each chunk with CREPE F0 estimation + phase vocoder.
+
+@router.websocket("/ws/voice-change-preview")
+async def voice_change_preview_ws(ws: WebSocket):
+    from starlette.websockets import WebSocketDisconnect
+
+    await ws.accept()
+
+    semitones = 0
+    formant_shift = 0.0
+    buffer = np.array([], dtype=np.float32)
+    chunk_size = 1024
+    sample_rate = 16000
+
+    try:
+        while True:
+            data = await ws.receive()
+
+            if "text" in data:
+                import json
+                msg = json.loads(data["text"])
+                cmd = msg.get("cmd", "")
+                if cmd == "params":
+                    semitones = int(msg.get("semitones", 0))
+                    formant_shift = float(msg.get("formant_shift", 0.0))
+                elif cmd == "reset":
+                    buffer = np.array([], dtype=np.float32)
+                elif cmd == "process":
+                    semitones = int(msg.get("semitones", 0))
+                    formant_shift = float(msg.get("formant_shift", 0.0))
+                    await _process_preview_buffer(ws, buffer, sample_rate, semitones, formant_shift)
+                    buffer = np.array([], dtype=np.float32)
+                continue
+
+            elif "bytes" in data:
+                chunk = np.frombuffer(data["bytes"], dtype=np.float32)
+                buffer = np.concatenate([buffer, chunk])
+
+                if len(buffer) >= 10240:
+                    await _process_preview_buffer(ws, buffer, sample_rate, semitones, formant_shift)
+                    buffer = np.array([], dtype=np.float32)
+
+    except WebSocketDisconnect:
+        pass
+
+
+async def _process_preview_buffer(ws: WebSocket, audio: np.ndarray, sr: int, semitones: int, formant_shift: float):
+    from ..services.voice_changer import _load_crepe, _extract_f0_crepe, _pitch_shift_phase_vocoder, _shift_formants
+
+    if len(audio) < 256:
+        await ws.send_bytes(audio.astype(np.float32).tobytes())
+        return
+
+    crepe = _load_crepe()
+    if crepe:
+        try:
+            f0_frames = _extract_f0_crepe(audio, sr)
+            has_voicing = f0_frames is not None and (f0_frames > 0).any()
+            from ..services.voice_changer import _interpolate_f0_frames
+            f0_interp = _interpolate_f0_frames(len(audio), f0_frames, hop_length=256, sr=sr) if has_voicing else None
+        except Exception:
+            f0_interp = None
+    else:
+        f0_interp = None
+
+    if semitones != 0:
+        try:
+            processed = _pitch_shift_phase_vocoder(audio, sr, semitones, f0_interp)
+        except Exception:
+            import librosa
+            processed = librosa.effects.pitch_shift(y=audio, sr=sr, n_steps=semitones, res_type="soxr_hq")
+    else:
+        processed = audio.copy()
+
+    if formant_shift != 0:
+        try:
+            processed = _shift_formants(processed, sr, formant_shift)
+        except Exception:
+            pass
+
+    await ws.send_bytes(processed.astype(np.float32).tobytes())
 
 
 # ── Echo/Reverb Remover ────────────────────────────────────────

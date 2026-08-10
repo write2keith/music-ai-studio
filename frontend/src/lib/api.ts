@@ -361,11 +361,12 @@ export const api = {
       fd.append("file", file);
       return upload<LeadBackResult>("/api/tools/lead-back-split", fd);
     },
-    voiceChange: (file: File, semitones: number = 0, formantShift: number = 0) => {
+    voiceChange: (file: File, semitones: number = 0, formantShift: number = 0, method: string = "auto") => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("semitones", String(semitones));
       fd.append("formant_shift", String(formantShift));
+      fd.append("method", method);
       return upload<VoiceChangeResult>("/api/tools/voice-change", fd);
     },
     dereverb: (file: File, strength: number = 0.7, method: string = "wpe") => {
@@ -608,6 +609,7 @@ export interface VoiceChangeResult {
   duration: number;
   semitones: number;
   formant_shift: number;
+  method: string;
 }
 
 export interface DereverbResult {

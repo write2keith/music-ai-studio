@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Loader2, AlertCircle, Sparkles, FileAudio,
   Upload, Check, Play, Pause, ArrowUp, ArrowDown, Volume2,
-  Repeat, SkipBack,
+  Repeat, SkipBack, Cpu, Zap, Brain,
 } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ export default function VoiceChangerPage() {
   const [file, setFile] = useState<File | null>(null);
   const [semitones, setSemitones] = useState(0);
   const [formantShift, setFormantShift] = useState(0);
+  const [method, setMethod] = useState<"auto" | "spectral" | "crepe" | "rvc">("auto");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<VoiceChangeResult | null>(null);
@@ -59,6 +60,15 @@ export default function VoiceChangerPage() {
   const [snippetLoop, setSnippetLoop] = useState(true);
   const loopRef = useRef(false);
 
+  // WebSocket streaming preview (low-latency CREPE pipeline)
+  const [streamingPreview, setStreamingPreview] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamCtxRef = useRef<AudioContext | null>(null);
+  const streamSrcRef = useRef<AudioBufferSourceNode | null>(null);
+  const streamBufRef = useRef<AudioBuffer | null>(null);
+  const streamQueueRef = useRef<Float32Array[]>([]);
+  const streamPlayingRef = useRef(false);
+
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -76,6 +86,21 @@ export default function VoiceChangerPage() {
       try { src.stop(); } catch {}
       previewSourceRef.current = null;
     }
+    stopStreamingPreview();
+    setIsPreviewing(false);
+  }
+
+  function togglePreview() {
+    if (isPreviewing) {
+      stopPreview();
+    } else if (streamingPreview && audioBufferRef.current) {
+      startStreamingPreview(audioBufferRef.current);
+      setIsPreviewing(true);
+    } else {
+      setPreviewTime(previewStartRef.current);
+      startPreview();
+    }
+  }
     setIsPreviewing(false);
   }
 
@@ -196,6 +221,127 @@ export default function VoiceChangerPage() {
     }, 200);
   }
 
+  // ── WebSocket Streaming Preview ──────────────────────────────
+
+  function stopStreamingPreview() {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (streamSrcRef.current) {
+      try { streamSrcRef.current.stop(); } catch {}
+      streamSrcRef.current = null;
+    }
+    streamQueueRef.current = [];
+    streamPlayingRef.current = false;
+    streamBufRef.current = null;
+  }
+
+  function startStreamingPreview(sourceBuffer: AudioBuffer, seekTo?: number) {
+    stopStreamingPreview();
+
+    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${window.location.host}/api/tools/ws/voice-change-preview`;
+
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    const ctx = new AudioContext();
+    streamCtxRef.current = ctx;
+
+    const sr = sourceBuffer.sampleRate;
+    const channels = sourceBuffer.numberOfChannels;
+    const fullData = sourceBuffer.getChannelData(0);
+    if (channels > 1) {
+      const right = sourceBuffer.getChannelData(1);
+      for (let i = 0; i < fullData.length; i++) fullData[i] = (fullData[i] + right[i]) / 2;
+    }
+
+    // Resample to 16kHz for CREPE
+    let audio16k = fullData;
+    if (sr !== 16000 && sr > 0) {
+      const ratio = 16000 / sr;
+      const outLen = Math.round(fullData.length * ratio);
+      const resampled = new Float32Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const srcIdx = i / ratio;
+        const lo = Math.floor(srcIdx);
+        const hi = Math.min(lo + 1, fullData.length - 1);
+        const frac = srcIdx - lo;
+        resampled[i] = fullData[lo] * (1 - frac) + fullData[hi] * frac;
+      }
+      audio16k = resampled;
+    }
+
+    const CHUNK = 1024;
+    const chunks: Float32Array[] = [];
+    for (let i = 0; i < audio16k.length; i += CHUNK) {
+      chunks.push(audio16k.slice(i, i + CHUNK));
+    }
+
+    // Send params
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        cmd: "params",
+        semitones,
+        formant_shift: formantShift,
+      }));
+      ws.send(JSON.stringify({ cmd: "reset" }));
+
+      // Stream all chunks
+      for (const chunk of chunks) {
+        ws.send(chunk.buffer);
+      }
+      ws.send(JSON.stringify({
+        cmd: "process",
+        semitones,
+        formant_shift: formantShift,
+      }));
+    };
+
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) {
+        const processed = new Float32Array(ev.data);
+        streamQueueRef.current.push(processed);
+        if (!streamPlayingRef.current) {
+          _playStreamQueue(ctx);
+        }
+      }
+    };
+
+    ws.onerror = () => {
+      stopStreamingPreview();
+    };
+
+    ws.onclose = () => {
+      streamPlayingRef.current = false;
+    };
+  }
+
+  function _playStreamQueue(ctx: AudioContext) {
+    const queue = streamQueueRef.current;
+    if (queue.length === 0) {
+      streamPlayingRef.current = false;
+      return;
+    }
+    streamPlayingRef.current = true;
+
+    const chunk = queue.shift()!;
+    const buf = ctx.createBuffer(1, chunk.length, 16000);
+    buf.getChannelData(0).set(chunk);
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    streamSrcRef.current = src;
+
+    src.onended = () => {
+      _playStreamQueue(ctx);
+    };
+    src.start();
+  }
+
   const handleSemitones = useCallback((v: number) => {
     setSemitones(v);
     schedulePreviewUpdate();
@@ -261,7 +407,7 @@ export default function VoiceChangerPage() {
     setError("");
     setResult(null);
     try {
-      const data = await api.tools.voiceChange(file, semitones, formantShift);
+      const data = await api.tools.voiceChange(file, semitones, formantShift, method);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -417,6 +563,34 @@ export default function VoiceChangerPage() {
             <span>-6 (smaller)</span>
             <span>0 (original)</span>
             <span>+6 (larger)</span>
+          </div>
+        </div>
+
+        {/* Method Selector */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5">Engine</label>
+          <div className="grid grid-cols-4 gap-1">
+            {([
+              { k: "auto", label: "Auto", icon: Zap, desc: "Best available" },
+              { k: "spectral", label: "Spectral", icon: Cpu, desc: "Legacy FFT" },
+              { k: "crepe", label: "CREPE", icon: Brain, desc: "Neural F0" },
+              { k: "rvc", label: "RVC", icon: Sparkles, desc: "Voice clone" },
+            ] as const).map(({ k, label, icon: Icon, desc }) => (
+              <button
+                key={k}
+                onClick={() => setMethod(k)}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-2 py-2 rounded-md text-xs font-medium transition-all border",
+                  method === k
+                    ? "bg-pink-500/10 text-pink-400 border-pink-400/30"
+                    : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border"
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{label}</span>
+                <span className="text-[8px] text-daw-text-dim leading-none">{desc}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -606,6 +780,23 @@ export default function VoiceChangerPage() {
                     />
                     <span className="text-[9px] text-daw-text-dim">Auto-update</span>
                   </label>
+
+                  <span className="text-daw-border">|</span>
+
+                  {/* Streaming preview toggle */}
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={streamingPreview}
+                      onChange={(e) => {
+                        setStreamingPreview(e.target.checked);
+                        stopPreview();
+                      }}
+                      className="w-3 h-3 rounded accent-pink-400"
+                    />
+                    <Brain className="w-3 h-3 text-daw-text-dim" />
+                    <span className="text-[9px] text-daw-text-dim">CREPE stream</span>
+                  </label>
                 </div>
               </div>
             </motion.div>
@@ -673,6 +864,11 @@ export default function VoiceChangerPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-daw-text">Transformed Voice</span>
                   <Badge variant="green"><Check className="w-3 h-3" /> Ready</Badge>
+                  {result.method && (
+                    <Badge variant="default" className="text-[9px] bg-pink-500/10 text-pink-400">
+                      {result.method}
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 mt-0.5 text-[10px] text-daw-text-dim">
                   <span>{formatSecs(result.duration)}</span>
