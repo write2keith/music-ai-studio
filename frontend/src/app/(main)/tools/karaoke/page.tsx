@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Play, Pause, Square, SkipBack, ImageIcon, Film, Download, Loader2,
   AlertCircle, FileAudio, Type, ChevronDown, ChevronUp, Mic, Music,
-  Edit3, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -46,6 +45,7 @@ export default function KaraokePage() {
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const animRef = useRef<number>(0);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
 
   // Time tracking (higher precision than timeupdate event)
   const rafTimeRef = useRef(0);
@@ -68,7 +68,6 @@ export default function KaraokePage() {
 
   // UI panels
   const [bgPanelOpen, setBgPanelOpen] = useState(true);
-  const [timelineOpen, setTimelineOpen] = useState(false);
 
   // Export
   const [exporting, setExporting] = useState(false);
@@ -124,8 +123,17 @@ export default function KaraokePage() {
       setLyricLines([]);
       setSyncWords([]);
       setSyncIndex(0);
+      setAudioBuffer(null);
       const audio = new Audio(url);
       audio.addEventListener("loadedmetadata", () => setAudioDuration(audio.duration));
+
+      file.arrayBuffer().then((ab) => {
+        const ctx = new AudioContext();
+        ctx.decodeAudioData(ab).then((buf) => {
+          setAudioBuffer(buf);
+          ctx.close();
+        }).catch(() => ctx.close());
+      });
     },
     [audioUrl],
   );
@@ -757,14 +765,14 @@ export default function KaraokePage() {
         )}
 
         {/* ── Lyrics Input + Sync ── */}
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex items-center gap-2">
             <label className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold">
               Lyrics
             </label>
-            <div className="flex gap-1">
+            <div className="flex ml-auto gap-1">
               <button
-                onClick={() => setSyncMode("tap")}
+                onClick={() => { setSyncMode("tap"); setLyricLines([]); setSyncWords([]); setSyncIndex(0); }}
                 className={cn(
                   "px-2 py-0.5 rounded text-[10px] transition-colors",
                   syncMode === "tap"
@@ -772,10 +780,10 @@ export default function KaraokePage() {
                     : "bg-daw-surface-2 text-daw-text-dim border border-daw-border",
                 )}
               >
-                Tap Sync (spacebar)
+                Tap Sync
               </button>
               <button
-                onClick={() => setSyncMode("manual")}
+                onClick={() => { setSyncMode("manual"); setSyncWords([]); setSyncIndex(0); }}
                 className={cn(
                   "px-2 py-0.5 rounded text-[10px] transition-colors",
                   syncMode === "manual"
@@ -793,76 +801,59 @@ export default function KaraokePage() {
             onChange={(e) => setLyricsText(e.target.value)}
             placeholder="Paste lyrics here, one line per phrase..."
             rows={4}
-            className="w-full bg-daw-surface-2 text-daw-text text-sm rounded-lg p-3 outline-none border border-daw-border resize-none placeholder:text-daw-text-dim/50"
+            className="w-full bg-daw-surface-2 text-daw-text text-sm rounded-lg p-3 outline-none border border-daw-border resize-none placeholder:text-daw-text-dim/50 font-mono"
           />
 
-          <div className="flex gap-2">
-            {syncMode === "tap" ? (
-              <>
-                <Button
-                  size="sm"
-                  onClick={parseLyrics}
-                  disabled={!lyricsText.trim()}
-                >
-                  <Type className="w-3.5 h-3.5 mr-1" />
-                  Parse Lyrics
+          {syncMode === "tap" ? (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Button size="sm" onClick={parseLyrics} disabled={!lyricsText.trim()}>
+                  <Type className="w-3.5 h-3.5 mr-1" /> Parse Words
                 </Button>
-                {syncWords.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={buildLines}
-                    disabled={syncWords.filter((w) => w.synced).length === 0}
-                  >
-                    Build Timeline
+                {syncWords.length > 0 && syncIndex >= syncWords.length && (
+                  <Button size="sm" variant="secondary" onClick={buildLines}>
+                    Apply to Timeline
                   </Button>
                 )}
-              </>
-            ) : (
-              <Button
-                size="sm"
-                onClick={autoSync}
-                disabled={!lyricsText.trim() || !audioDuration}
-              >
-                <Type className="w-3.5 h-3.5 mr-1" />
-                Auto Sync
-              </Button>
-            )}
-          </div>
+              </div>
 
-          {/* Tap sync visual feedback */}
-          <AnimatePresence>
-            {syncMode === "tap" && syncWords.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="p-2 rounded-lg bg-daw-surface-2 border border-daw-border max-h-36 overflow-y-auto">
-                  <div className="flex flex-wrap gap-1">
-                    {syncWords.map((w, i) => (
-                      <span key={i} className="contents">
-                        {editingWordIdx === i ? (
-                          <span className="inline-flex items-center gap-0.5">
-                            <input
-                              type="text"
-                              value={editWordValue}
-                              onChange={(e) => setEditWordValue(e.target.value)}
-                              className="w-16 bg-daw-surface-1 text-daw-text text-[10px] rounded px-1 py-0.5 outline-none border border-daw-accent/30"
-                              autoFocus
-                              onBlur={() => {
-                                if (editWordValue.trim()) {
-                                  setSyncWords((prev) => {
-                                    const next = [...prev];
-                                    next[i] = { ...next[i], text: editWordValue.trim() };
-                                    return next;
-                                  });
-                                }
-                                setEditingWordIdx(null);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
+              {/* Tap sync word grid */}
+              {syncWords.length > 0 && (
+                <div className="p-3 rounded-lg bg-daw-surface-2 border border-daw-border">
+                  {isPlaying && syncIndex < syncWords.length ? (
+                    <div className="text-center py-2">
+                      <div className={cn(
+                        "text-2xl font-bold mb-1 transition-colors",
+                        "text-daw-accent",
+                      )}>
+                        {syncWords[syncIndex]?.text || ""}
+                      </div>
+                      <p className="text-xs text-daw-text-dim mb-1">
+                        Word {syncIndex + 1} of {syncWords.length}
+                      </p>
+                      <div className="w-full bg-daw-surface-1 rounded-full h-1.5">
+                        <div
+                          className="bg-daw-accent h-1.5 rounded-full transition-all duration-75"
+                          style={{ width: `${((syncIndex) / syncWords.length) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-daw-accent mt-1.5 animate-pulse font-bold">
+                        Tap SPACEBAR now
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto">
+                      {syncWords.map((w, i) => (
+                        <span key={i} className="contents">
+                          {editingWordIdx === i ? (
+                            <span className="inline-flex items-center gap-0.5">
+                              <input
+                                type="text"
+                                value={editWordValue}
+                                onChange={(e) => setEditWordValue(e.target.value)}
+                                className="w-16 bg-daw-surface-1 text-daw-text text-[10px] rounded px-1 py-0.5 outline-none border border-daw-accent/30"
+                                autoFocus
+                                onBlur={() => {
                                   if (editWordValue.trim()) {
                                     setSyncWords((prev) => {
                                       const next = [...prev];
@@ -871,82 +862,105 @@ export default function KaraokePage() {
                                     });
                                   }
                                   setEditingWordIdx(null);
-                                }
-                                if (e.key === "Escape") setEditingWordIdx(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === "Escape") {
+                                    if (editWordValue.trim() && e.key === "Enter") {
+                                      setSyncWords((prev) => {
+                                        const next = [...prev];
+                                        next[i] = { ...next[i], text: editWordValue.trim() };
+                                        return next;
+                                      });
+                                    }
+                                    setEditingWordIdx(null);
+                                  }
+                                }}
+                              />
+                            </span>
+                          ) : (
+                            <span
+                              className={cn(
+                                "text-[10px] px-1.5 py-0.5 rounded font-medium transition-all cursor-pointer select-none",
+                                i < syncIndex
+                                  ? "bg-daw-accent/20 text-daw-accent"
+                                  : i === syncIndex && isPlaying
+                                  ? "bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400/50"
+                                  : "bg-daw-surface-1 text-daw-text-dim",
+                              )}
+                              onDoubleClick={() => {
+                                setEditingWordIdx(i);
+                                setEditWordValue(w.text);
                               }}
-                            />
-                            <Check className="w-3 h-3 text-daw-green" />
-                          </span>
-                        ) : (
-                          <span
-                            className={cn(
-                              "text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors cursor-pointer select-none",
-                              w.synced
-                                ? "bg-daw-accent/20 text-daw-accent hover:bg-daw-accent/30"
-                                : "bg-daw-surface-1 text-daw-text-dim hover:bg-daw-surface-3",
-                              i === syncIndex && "ring-1 ring-daw-accent scale-110",
-                            )}
-                            onDoubleClick={() => {
-                              setEditingWordIdx(i);
-                              setEditWordValue(w.text);
-                            }}
-                            title="Double-click to edit"
-                          >
-                            {w.text}
-                            {w.synced && (
-                              <span className="ml-0.5 text-[8px] opacity-50">{w.start.toFixed(1)}s</span>
-                            )}
-                          </span>
-                        )}
-                      </span>
-                    ))}
+                              title="Double-click to edit"
+                            >
+                              {w.text}
+                              {i < syncIndex && (
+                                <span className="ml-0.5 text-[8px] opacity-50">{syncWords[i].start.toFixed(1)}s</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-[10px] text-daw-text-dim">
+                      {syncIndex} / {syncWords.length} synced
+                    </span>
+                    {syncIndex > 0 && (
+                      <button
+                        onClick={() => {
+                          setSyncWords((prev) => {
+                            const next = [...prev];
+                            for (let i = syncIndex - 1; i >= 0; i--) {
+                              next[i] = { ...next[i], synced: false, start: 0, end: 0 };
+                            }
+                            return next;
+                          });
+                          setSyncIndex(0);
+                        }}
+                        className="text-[9px] text-red-400 hover:text-red-300"
+                      >
+                        Reset taps
+                      </button>
+                    )}
                   </div>
-                  {isPlaying && syncIndex < syncWords.length && (
-                    <p className="text-[10px] text-daw-accent mt-1.5 animate-pulse">
-                      Tap SPACEBAR on each word ({syncIndex + 1}/{syncWords.length})
-                    </p>
-                  )}
-                  {syncIndex >= syncWords.length && (
-                    <p className="text-[10px] text-daw-green mt-1.5">
-                      All words synced. Click "Build Timeline" above.
-                    </p>
-                  )}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              )}
+            </div>
+          ) : (
+            <div>
+              <Button
+                size="sm"
+                onClick={autoSync}
+                disabled={!lyricsText.trim() || !audioDuration}
+              >
+                <Type className="w-3.5 h-3.5 mr-1" />
+                Auto Distribute
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* ── Timeline Drawer ── */}
+        {/* ── Timeline Editor (always visible when synced) ── */}
         {lyricLines.length > 0 && (
-          <div>
-            <button
-              onClick={() => setTimelineOpen(!timelineOpen)}
-              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold hover:text-daw-text transition-colors w-full"
-            >
-              {timelineOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              Timeline Editor
-              <span className="text-[9px] text-daw-text-dim ml-2 normal-case tracking-normal">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold">
+              Timeline
+              <span className="text-[9px] ml-2 normal-case tracking-normal">
                 {lyricLines.reduce((sum, l) => sum + l.words.length, 0)} words
               </span>
-            </button>
-            {timelineOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                className="mt-2 overflow-hidden"
-              >
-                <LyricTimeline
-                  lines={lyricLines}
-                  currentTime={currentTime}
-                  duration={audioDuration}
-                  isPlaying={isPlaying}
-                  onSeek={seekTo}
-                  onUpdateWord={handleUpdateWord}
-                  onUpdateLine={handleUpdateLine}
-                />
-              </motion.div>
-            )}
+            </div>
+            <LyricTimeline
+              lines={lyricLines}
+              currentTime={currentTime}
+              duration={audioDuration}
+              isPlaying={isPlaying}
+              onSeek={seekTo}
+              onUpdateWord={handleUpdateWord}
+              onUpdateLine={handleUpdateLine}
+              audioBuffer={audioBuffer}
+            />
           </div>
         )}
 
@@ -972,7 +986,7 @@ export default function KaraokePage() {
               )}
             </Button>
             <p className="text-[9px] text-daw-text-dim mt-1 text-center">
-              Records {CANVAS_W}x{CANVAS_H} canvas + audio at 30fps via MediaRecorder API
+              Records {CANVAS_W}x{CANVAS_H} + audio at 30fps
             </p>
           </div>
         )}
