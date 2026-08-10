@@ -154,6 +154,38 @@ export class MasterClock {
     return p;
   }
 
+  createEqualPowerPanner(pan: number = 0): {
+    input: GainNode;
+    panLeft: GainNode;
+    panRight: GainNode;
+    output: ChannelMergerNode;
+    setPan: (value: number) => void;
+  } {
+    this._ensureInit();
+    const input = this.ctx.createGain();
+    input.gain.value = 1;
+
+    const leftGain = this.ctx.createGain();
+    const rightGain = this.ctx.createGain();
+    const merger = this.ctx.createChannelMerger(2);
+
+    input.connect(leftGain);
+    input.connect(rightGain);
+    leftGain.connect(merger, 0, 0);
+    rightGain.connect(merger, 0, 1);
+
+    const setPan = (value: number) => {
+      const clamped = Math.max(-1, Math.min(1, value));
+      const angle = ((clamped + 1) / 2) * (Math.PI / 2);
+      leftGain.gain.setTargetAtTime(Math.cos(angle), this.ctx.currentTime, 0.01);
+      rightGain.gain.setTargetAtTime(Math.sin(angle), this.ctx.currentTime, 0.01);
+    };
+
+    setPan(pan);
+
+    return { input, panLeft: leftGain, panRight: rightGain, output: merger, setPan };
+  }
+
   destroy() {
     this.halt();
     if (this._init) {

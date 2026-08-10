@@ -17,6 +17,8 @@ interface Props {
   valueMax?: number;
   formatValue?: (v: number) => string;
   onPointsChange: (points: AutomationPoint[]) => void;
+  curve?: "linear" | "exponential";
+  onCurveChange?: (curve: "linear" | "exponential") => void;
 }
 
 export function AutomationLane({
@@ -29,6 +31,8 @@ export function AutomationLane({
   valueMax = 1,
   formatValue = (v) => (v * 100).toFixed(0) + "%",
   onPointsChange,
+  curve = "linear",
+  onCurveChange,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
@@ -57,13 +61,34 @@ export function AutomationLane({
   function buildPath(w: number): string {
     if (points.length === 0) return "";
     const sorted = [...points].sort((a, b) => a.time - b.time);
+    if (curve === "exponential") return buildCurvedPath(w, sorted);
 
-    // Start from left edge using first point's value (flat)
     let d = `M 0,${valueToY(sorted[0].value)}`;
     for (const p of sorted) {
       d += ` L ${timeToX(p.time, w)},${valueToY(p.value)}`;
     }
-    // Extend to right edge using last point's value (flat)
+    if (sorted.length > 0) {
+      d += ` L ${w},${valueToY(sorted[sorted.length - 1].value)}`;
+    }
+    return d;
+  }
+
+  function buildCurvedPath(w: number, sorted: AutomationPoint[]): string {
+    if (sorted.length === 0) return "";
+    let d = `M 0,${valueToY(sorted[0].value)}`;
+    for (let i = 0; i < sorted.length; i++) {
+      const x = timeToX(sorted[i].time, w);
+      const y = valueToY(sorted[i].value);
+      if (i > 0) {
+        const prevX = timeToX(sorted[i - 1].time, w);
+        const prevY = valueToY(sorted[i - 1].value);
+        const cpx = (prevX + x) / 2;
+        const cpy = y > prevY ? Math.min(prevY, y) - 8 : Math.max(prevY, y) + 8;
+        d += ` Q ${cpx},${cpy} ${x},${y}`;
+      } else {
+        d += ` L ${x},${y}`;
+      }
+    }
     if (sorted.length > 0) {
       d += ` L ${w},${valueToY(sorted[sorted.length - 1].value)}`;
     }
@@ -156,6 +181,15 @@ export function AutomationLane({
         <span className="text-[9px] text-daw-text-dim uppercase tracking-wider">{label}</span>
         {points.length > 0 && (
           <span className="text-[9px] text-daw-text-dim">{points.length} pts</span>
+        )}
+        {onCurveChange && (
+          <button
+            type="button"
+            onClick={() => onCurveChange(curve === "linear" ? "exponential" : "linear")}
+            className="ml-auto text-[9px] text-daw-accent hover:text-daw-text transition-colors"
+          >
+            {curve === "linear" ? "lin" : "exp"}
+          </button>
         )}
       </div>
       <div style={{ height, position: "relative" }}>

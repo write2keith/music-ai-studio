@@ -5,6 +5,7 @@ import { Mic, Volume2, VolumeX, ChevronDown, ChevronUp, Square } from "lucide-re
 import { cn } from "@/lib/utils";
 import { TimelineClip } from "./TimelineClip";
 import { AutomationLane, type AutomationPoint } from "./AutomationLane";
+import { interpolateEnvelope as curveInterpolate } from "@/lib/audio-utils";
 
 export interface TrackData {
   id: string;
@@ -115,6 +116,7 @@ export function TrackRow({
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const panRef = useRef<StereoPannerNode | null>(null);
+  const panSetRef = useRef<((value: number) => void) | null>(null);
   const reverbSendRef = useRef<GainNode | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
   const startedRef = useRef(false);
@@ -127,12 +129,12 @@ export function TrackRow({
 
     function tick() {
       if (gainRef.current && track.volumeEnvelope.length > 0) {
-        const v = interpolateEnvelope(track.volumeEnvelope, playheadTime, track.volume);
+        const v = curveInterpolate(track.volumeEnvelope, playheadTime, "exponential");
         gainRef.current.gain.value = v;
       }
-      if (panRef.current && track.panEnvelope.length > 0) {
+      if (panSetRef.current && track.panEnvelope.length > 0) {
         const p = interpolateEnvelope(track.panEnvelope, playheadTime, track.pan);
-        panRef.current.pan.value = p;
+        panSetRef.current(p);
       }
       rafRef.current = requestAnimationFrame(tick);
     }
@@ -144,7 +146,7 @@ export function TrackRow({
   useEffect(() => {
     if (!isPlaying) {
       if (gainRef.current) gainRef.current.gain.value = track.volume;
-      if (panRef.current) panRef.current.pan.value = track.pan;
+      if (panSetRef.current) panSetRef.current(track.pan);
     } else if (track.volumeEnvelope.length === 0 && gainRef.current) {
       gainRef.current.gain.value = track.volume;
     }
@@ -188,8 +190,8 @@ export function TrackRow({
   }, [track.volume]);
 
   useEffect(() => {
-    if (panRef.current) {
-      panRef.current.pan.value = track.pan;
+    if (panSetRef.current) {
+      panSetRef.current(track.pan);
     }
   }, [track.pan]);
 
@@ -206,28 +208,28 @@ export function TrackRow({
     const source = ctx.createBufferSource();
     source.buffer = bufferRef.current;
 
-    const pan = ctx.createStereoPanner();
-    pan.pan.value = track.pan;
+    const { input, panLeft, panRight, output: pannerOut, setPan } = masterClock.createEqualPowerPanner(track.pan);
 
     const gain = ctx.createGain();
     gain.gain.value = track.volume;
 
-    source.connect(pan);
-    pan.connect(gain);
+    source.connect(input);
+    pannerOut.connect(gain);
     gain.connect(masterBus);
 
     if (effectsReady && reverbWetGain) {
       const reverbSend = ctx.createGain();
       reverbSend.gain.value = track.reverbSend;
-      pan.connect(reverbSend);
+      pannerOut.connect(reverbSend);
       reverbSend.connect(reverbWetGain);
       reverbSendRef.current = reverbSend;
     }
 
     source.start(0, offset);
     sourceRef.current = source;
-    panRef.current = pan;
+    panRef.current = { left: panLeft, right: panRight } as unknown as StereoPannerNode;
     gainRef.current = gain;
+    panSetRef.current = setPan;
     startedRef.current = true;
 
     source.onended = () => {
@@ -236,6 +238,7 @@ export function TrackRow({
         panRef.current = null;
         gainRef.current = null;
         reverbSendRef.current = null;
+        panSetRef.current = null;
         startedRef.current = false;
       }
     };
@@ -249,6 +252,7 @@ export function TrackRow({
     panRef.current = null;
     gainRef.current = null;
     reverbSendRef.current = null;
+    panSetRef.current = null;
     startedRef.current = false;
   }
 
@@ -497,6 +501,7 @@ export function TrackRow({
               valueMax={1}
               formatValue={(v) => (v * 100).toFixed(0) + "%"}
               onPointsChange={onVolumeEnvelopeChange}
+              curve="exponential"
             />
           )}
           {track.automationType === "pan" && (

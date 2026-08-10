@@ -75,6 +75,7 @@ export default function EditorPage() {
   const metronomeCtxRef = useRef<AudioContext | null>(null);
   const beatCountRef = useRef(0);
   const [metronomeOn, setMetronomeOn] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Master effects state
   const [reverbLevel, setReverbLevel] = useState(0.25);
@@ -319,61 +320,85 @@ export default function EditorPage() {
     setTracks((prev) => prev.filter((t) => t.id !== id));
   }
 
-  function exportMix() {
+  function exportMixWorker() {
     const activeTracks = tracks.filter((t) => t.audioBlob && !t.muted);
     if (activeTracks.length === 0) return;
 
-    const ctx = new AudioContext();
+    setExporting(true);
+    let closed = false;
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      setExporting(false);
+    };
+
+    const tempCtx = new AudioContext();
     Promise.all(
       activeTracks.map(
         (t) =>
-          new Promise<AudioBuffer>((resolve) => {
+          new Promise<{ track: typeof t; buffer: AudioBuffer }>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = async () => {
-              const buf = await ctx.decodeAudioData(reader.result as ArrayBuffer);
-              resolve(buf);
+              try {
+                const buf = await tempCtx.decodeAudioData(reader.result as ArrayBuffer);
+                resolve({ track: t, buffer: buf });
+              } catch (err) { reject(err); }
             };
+            reader.onerror = reject;
             reader.readAsArrayBuffer(t.audioBlob!);
           }),
       ),
-    ).then((buffers) => {
-      const sampleRate = ctx.sampleRate;
-      const maxEnd = Math.max(
-        ...activeTracks.map((t, i) => t.startOffset * sampleRate + buffers[i].length),
-      );
-      const length = Math.ceil(maxEnd);
-      const out = ctx.createBuffer(2, length, sampleRate);
-      const left = out.getChannelData(0);
-      const right = out.getChannelData(1);
+    )
+      .then((results) => {
+        tempCtx.close();
 
-      activeTracks.forEach((t, idx) => {
-        const buf = buffers[idx];
-        const offsetSamples = Math.round(t.startOffset * sampleRate);
-        const pan = t.pan;
-        const leftGain = pan <= 0 ? 1 : 1 - pan;
-        const rightGain = pan >= 0 ? 1 : 1 + pan;
+        const maxDuration = Math.max(
+          ...results.map(({ track, buffer }) => track.startOffset + buffer.duration),
+          1,
+        );
 
-        for (let c = 0; c < Math.min(buf.numberOfChannels, 2); c++) {
-          const data = buf.getChannelData(c);
-          for (let i = 0; i < data.length; i++) {
-            const outIdx = offsetSamples + i;
-            if (outIdx >= length) break;
-            left[outIdx] += data[i] * t.volume * leftGain * 0.5;
-            right[outIdx] += data[i] * t.volume * rightGain * 0.5;
-          }
-        }
+        const workerTracks = results.map(({ track, buffer }) => {
+          const ch0 = buffer.getChannelData(0);
+          const copy = new Float32Array(ch0.length);
+          copy.set(ch0);
+          return {
+            buffer: copy,
+            sampleRate: buffer.sampleRate,
+            volume: track.volume,
+            pan: track.pan,
+            startOffset: track.startOffset,
+            trimStart: 0,
+            trimEnd: 0,
+            duration: buffer.duration,
+          };
+        });
+
+        const worker = new Worker(new URL("@/workers/mixdown.worker", import.meta.url));
+        worker.onmessage = (ev: MessageEvent<{ wav: ArrayBuffer }>) => {
+          const blob = new Blob([ev.data.wav], { type: "audio/wav" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "mixdown.wav";
+          a.click();
+          URL.revokeObjectURL(url);
+          worker.terminate();
+          close();
+        };
+        worker.onerror = () => {
+          worker.terminate();
+          close();
+        };
+        worker.postMessage(
+          { tracks: workerTracks, duration: maxDuration, sampleRate: 44100 },
+          workerTracks.map((t) => t.buffer.buffer),
+        );
+      })
+      .catch(() => {
+        tempCtx.close();
+        close();
       });
-
-      const wav = encodeWav(out);
-      const blob = new Blob([wav], { type: "audio/wav" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "mixdown.wav";
-      a.click();
-      URL.revokeObjectURL(url);
-      ctx.close();
-    });
   }
 
   const handleGlobalDrop = useCallback(
@@ -549,8 +574,9 @@ export default function EditorPage() {
             {isRecording ? "Recording..." : "Record"}
           </Button>
 
-          <Button size="sm" variant="secondary" onClick={exportMix} className="px-2">
+          <Button size="sm" variant="secondary" onClick={exportMixWorker} disabled={exporting} className="px-2">
             <Download className="w-4 h-4" />
+            {exporting ? "Exporting..." : "Export"}
           </Button>
         </div>
       </div>
