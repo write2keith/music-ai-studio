@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
 
   transpilePackages: ["soundtouchjs", "vexflow"],
 
+  turbopack: {
+    root: "./frontend",
+  },
+
   experimental: {
     proxyClientMaxBodySize: "500mb",
   },

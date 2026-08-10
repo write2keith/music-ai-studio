@@ -630,7 +630,7 @@ export default function GuitarTabPage() {
           </label>
           <Button
             size="sm"
-            variant="outline"
+            variant="secondary"
             className="flex-1 gap-1.5 text-xs"
             onClick={handleExportGP}
             disabled={exportingGP || !tabResult || tabResult.notes.length === 0}
@@ -668,7 +668,7 @@ export default function GuitarTabPage() {
               />
               <Button
                 size="sm"
-                variant="outline"
+                variant="secondary"
                 className="gap-1 text-xs px-3"
                 onClick={handleSearchTabs}
                 disabled={tabSearching || (!tabSearchArtist.trim() && !tabSearchTitle.trim())}
@@ -691,7 +691,7 @@ export default function GuitarTabPage() {
                       <div className="text-daw-text truncate">{r.title}</div>
                       <div className="text-daw-text-dim truncate">{r.artist}</div>
                     </div>
-                    <Badge variant="secondary" className="text-[9px] ml-2 shrink-0">
+                    <Badge variant="default" className="text-[9px] ml-2 shrink-0">
                       {r.source}
                     </Badge>
                   </a>
@@ -738,7 +738,7 @@ export default function GuitarTabPage() {
                     {formatTime(tabResult.duration_secs)} &middot; {tabResult.tuning.join("")}
                   </span>
                   {tabResult.method && (
-                    <Badge variant="secondary" className="text-[10px] bg-violet-500/10 text-violet-400">
+                    <Badge variant="default" className="text-[10px] bg-violet-500/10 text-violet-400">
                       {tabResult.method}
                     </Badge>
                   )}

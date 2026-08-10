@@ -72,8 +72,7 @@ export function StaveRenderer({ notes, durationSecs }: Props) {
 
 async function renderStave(container: HTMLDivElement, quantizedNotes: QuantizedNote[]) {
   try {
-    const vexPath = ["vex", "flow"].join("");
-    const VF = await import(vexPath);
+    const VF = await import("vexflow");
     const { Factory, EasyScore } = VF;
 
     container.innerHTML = "";

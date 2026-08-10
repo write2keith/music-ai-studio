@@ -315,13 +315,19 @@ export const api = {
       fd.append("file", file);
       return upload<GPImportResult>("/api/tools/import-gp", fd);
     },
-    exportGuitarPro: (notes: TabNote[], tuningKey: string, title: string, tempo: number = 120) =>
-      request<Blob>("/api/tools/export-gp", {
+    exportGuitarPro: async (notes: TabNote[], tuningKey: string, title: string, tempo: number = 120) => {
+      const res = await fetchWithRetry(`${API_BASE}/api/tools/export-gp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes, tuning_key: tuningKey, title, tempo }),
-        responseType: "blob",
-      }),
+        ...(API_BASE ? {} : { credentials: "include" as const }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new ApiError(res.status, body.detail || body.error || res.statusText);
+      }
+      return res.blob();
+    },
     searchTabs: (artist: string, title: string, source: string = "songsterr") =>
       request<TabSearchResult>("/api/tools/search-tabs", {
         method: "POST",

@@ -41,7 +41,7 @@ function nameToMidi(name: string): number {
 export default function NoteDetectionPage() {
   const [transcribeFile, setTranscribeFile] = useState<File | null>(null);
   const [transcribing, setTranscribing] = useState(false);
-  const [transcribeMethod, setTranscribeMethod] = useState<"fft" | "polyphonic">("fft");
+  const [transcribeMethod, setTranscribeMethod] = useState<"fft" | "polyphonic" | "cqt" | "ml">("fft");
   const [transcribeError, setTranscribeError] = useState("");
   const [transcribeResult, setTranscribeResult] = useState<TranscribeResult | null>(null);
   const [correctionMode, setCorrectionMode] = useState(false);
