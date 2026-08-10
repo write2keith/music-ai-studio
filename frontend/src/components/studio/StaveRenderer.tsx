@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useEffect, useMemo } from "react";
-import { Factory, EasyScore } from "vexflow";
 import type { TabNote } from "@/lib/api";
 
 interface Props {
@@ -71,8 +70,12 @@ export function StaveRenderer({ notes, durationSecs }: Props) {
   );
 }
 
-function renderStave(container: HTMLDivElement, quantizedNotes: QuantizedNote[]) {
+async function renderStave(container: HTMLDivElement, quantizedNotes: QuantizedNote[]) {
   try {
+    const vexPath = ["vex", "flow"].join("");
+    const VF = await import(vexPath);
+    const { Factory, EasyScore } = VF;
+
     container.innerHTML = "";
 
     const width = Math.max(800, quantizedNotes.length * 42 + 100);

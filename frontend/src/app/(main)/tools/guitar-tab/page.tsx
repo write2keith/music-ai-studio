@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { Download, Loader2, AlertCircle, Music, FileAudio, Play, Pause, Square, SkipForward, SkipBack, ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,8 +12,12 @@ import type { GuitarTabResult, TabNote, CalibrationResponse } from "@/lib/api";
 import TabRenderer from "@/components/TabRenderer";
 import { FretboardView } from "@/components/studio/FretboardView";
 import { PianoView } from "@/components/studio/PianoView";
-import { StaveRenderer } from "@/components/studio/StaveRenderer";
 import { getNotesAtTime } from "@/lib/note-synth";
+
+const StaveRenderer = dynamic(
+  () => import("@/components/studio/StaveRenderer").then((m) => m.StaveRenderer),
+  { ssr: false, loading: () => <div className="h-40 rounded-lg bg-daw-surface-3/30 animate-pulse" /> },
+);
 
 const NOTE_NAMES_SHORT = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
