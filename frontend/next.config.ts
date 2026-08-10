@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["soundtouchjs", "vexflow"],
 
   turbopack: {
-    root: "./frontend",
+    root: ".",
   },
 
   experimental: {
