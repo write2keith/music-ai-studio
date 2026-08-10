@@ -18,7 +18,23 @@ CHORD_CHROMA_TEMPLATES: dict[str, list[int]] = {
     "sus2":[0, 2, 7],
     "sus4":[0, 5, 7],
     "m7b5":[0, 3, 6, 10],
+    "m/maj7": [0, 3, 7, 11],
+    "aug7":[0, 4, 8, 10],
+    "7sus4":[0, 5, 7, 10],
+    "5":   [0, 7],
 }
+
+# Common inversion bass offsets: maps (root_offset, suffix) -> bass pitch class offset
+# A slash chord C/E means a C chord (root=0) with E (offset 4) in the bass
+SLASH_BASS_NOTE: dict[str, list[int]] = {}
+_slash_types = {"": [4, 7], "m": [3, 7], "7": [4, 7], "m7": [3, 10], "maj7": [4, 11]}
+for root_idx in range(12):
+    for suffix, bass_offsets in _slash_types.items():
+        if suffix not in CHORD_CHROMA_TEMPLATES:
+            continue
+        for bass_off in bass_offsets:
+            label = f"{NOTE_NAMES[root_idx]}{suffix}/{NOTE_NAMES[(root_idx + bass_off) % 12]}"
+            SLASH_BASS_NOTE[label] = [(root_idx + bass_off) % 12]
 
 def _build_templates() -> list[dict]:
     templates: list[dict] = []
@@ -33,6 +49,29 @@ def _build_templates() -> list[dict]:
                 "mask": mask / (np.linalg.norm(mask) or 1.0),
                 "intervals": intervals,
             })
+    for slash_label, bass_offsets in SLASH_BASS_NOTE.items():
+        # Parse "Cm/Eb" -> root="C", suffix="m", bass_note="Eb"
+        chord_part, bass_note = slash_label.split("/")
+        # Extract root from chord part: "Cm" -> "C", "m"; "C#" -> "C#", ""
+        i = 1
+        while i < len(chord_part) and chord_part[i] in "b#":
+            i += 1
+        root_note = chord_part[:i]
+        suffix_part = chord_part[i:]
+        if root_note not in NOTE_NAMES:
+            root_note = root_note.replace("b", "b").replace("#", "#")
+        root_idx = NOTE_NAMES.index(root_note)
+        intervals = CHORD_CHROMA_TEMPLATES.get(suffix_part, CHORD_CHROMA_TEMPLATES[""])
+        mask = np.zeros(12, dtype=np.float32)
+        for interval in intervals:
+            mask[(root_idx + interval) % 12] = 1.0
+        for bass in bass_offsets:
+            mask[bass % 12] = max(mask[bass % 12], 1.5)
+        templates.append({
+            "label": slash_label, "root": root_idx, "suffix": f"{suffix_part}/slash",
+            "mask": mask / (np.linalg.norm(mask) or 1.0),
+            "intervals": intervals,
+        })
     return templates
 
 TEMPLATES = _build_templates()
@@ -48,12 +87,15 @@ def _build_viterbi_transitions() -> np.ndarray:
             if i == j:
                 continue
             if a["root"] == b["root"] and a["suffix"] == b["suffix"]:
-                continue
-            if a["root"] == b["root"]:
+                T[i, j] = 0.04
+            elif a["root"] == b["root"]:
+                # Same root, different quality (e.g. C -> Cm)
                 T[i, j] = 0.04
             elif (b["root"] - a["root"]) % 12 in {5, 7}:
+                # Circle-of-fifths motion (IV or V)
                 T[i, j] = 0.03
             elif a["suffix"] == b["suffix"]:
+                # Same chord type, different root (e.g. parallel motion)
                 T[i, j] = 0.02
             else:
                 T[i, j] = 0.005
@@ -97,7 +139,7 @@ class ChordDetector:
             return
         try:
             import torch
-            self._model = ChordCNN(n_classes=N_CLASSES)
+            self._model = ChordCNN(n_classes=N_CLASSES, in_channels=24)
             model_path = Path(__file__).parent / "chord_model.pt"
             if model_path.exists():
                 self._model.load_state_dict(torch.load(str(model_path), map_location="cpu"))
@@ -174,8 +216,123 @@ class ChordDetector:
         chroma = chroma / per_frame_norm
         return chroma.astype(np.float32)
 
+    def extract_dual_cens(self, data: np.ndarray, sr: int) -> np.ndarray:
+        """Extract dual-resolution CENS chroma (fine+bass) for CNN/ResNet input.
+        CENS smooths dynamics/timbre variations, making models more resilient."""
+        import librosa
+
+        harmonic, _ = librosa.effects.hpss(data, margin=3.0)
+
+        hop_length = 512
+
+        # Fine CQT chroma: 7 octaves, C2+
+        cqt_fine = np.abs(librosa.cqt(
+            y=harmonic, sr=sr, hop_length=hop_length,
+            n_bins=84, bins_per_octave=12,
+            fmin=librosa.note_to_hz("C2"),
+        ))
+        chroma_fine = librosa.feature.chroma_cens(
+            C=cqt_fine, sr=sr, hop_length=hop_length,
+            n_chroma=12, bins_per_octave=12,
+        )
+
+        # Bass CENS chroma: C1-C3 range for root detection
+        cqt_bass = np.abs(librosa.cqt(
+            y=harmonic, sr=sr, hop_length=hop_length,
+            n_bins=24, bins_per_octave=12,
+            fmin=librosa.note_to_hz("C1"),
+        ))
+        chroma_bass = librosa.feature.chroma_cens(
+            C=cqt_bass, sr=sr, hop_length=hop_length,
+            n_chroma=12, bins_per_octave=12,
+        )
+
+        chroma = np.vstack([chroma_fine, chroma_bass])
+        per_frame_norm = np.linalg.norm(chroma, axis=0)
+        per_frame_norm[per_frame_norm < 1e-8] = 1.0
+        chroma = chroma / per_frame_norm
+        return chroma.astype(np.float32)
+
+    def detect_key(self, data: np.ndarray, sr: int) -> tuple[int, float]:
+        """Estimate musical key using Krumhansl-Shmuckler correlation.
+        Returns (key_root_midi, confidence)."""
+        import librosa
+
+        # Standard Krumhansl-Shmuckler key profiles (major + minor)
+        ks_major = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+        ks_minor = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+
+        chroma = self.extract_chroma_harmonic(data, sr)
+        mean_chroma = np.mean(chroma, axis=1)
+        mean_chroma = mean_chroma / (np.sum(mean_chroma) + 1e-8)
+
+        best_corr = -np.inf
+        best_key = 0
+        best_mode = "major"
+
+        for root in range(12):
+            rolled_major = np.roll(ks_major, root)
+            rolled_major = rolled_major / (np.sum(rolled_major) + 1e-8)
+            corr = float(np.corrcoef(mean_chroma, rolled_major)[0, 1])
+            if corr > best_corr:
+                best_corr = corr
+                best_key = root
+                best_mode = "major"
+
+            rolled_minor = np.roll(ks_minor, root)
+            rolled_minor = rolled_minor / (np.sum(rolled_minor) + 1e-8)
+            corr = float(np.corrcoef(mean_chroma, rolled_minor)[0, 1])
+            if corr > best_corr:
+                best_corr = corr
+                best_key = root
+                best_mode = "minor"
+
+        return best_key, best_corr, best_mode
+
+    def _build_key_bias(self, key_root: int, confidence: float, mode: str) -> np.ndarray:
+        """Build a diagonal bias matrix favoring chords in the detected key.
+        Diatonic triads in the key get a bonus; non-diatonic chords are slightly penalized."""
+        # Diatonic triads for major: I, ii, iii, IV, V, vi, viidim
+        major_diatonic = [
+            (0, ""), (2, "m"), (4, "m"), (5, ""),
+            (7, ""), (9, "m"), (11, "dim"),
+        ]
+        # Diatonic triads for natural minor: i, iidim, III, iv, v, VI, VII
+        minor_diatonic = [
+            (0, "m"), (2, "dim"), (3, ""), (5, "m"),
+            (7, "m"), (8, ""), (10, ""),
+        ]
+        diatonic = major_diatonic if mode == "major" else minor_diatonic
+
+        bias = np.zeros(N_CLASSES, dtype=np.float32)
+        for i, tpl in enumerate(TEMPLATES):
+            rel_root = (tpl["root"] - key_root) % 12
+            if (rel_root, tpl["suffix"]) in diatonic:
+                bias[i] = confidence * 0.3
+            # Circle-of-fifths neighbors get a smaller bonus
+            elif rel_root in {(key_root + 7) % 12, (key_root + 5) % 12}:
+                bias[i] = confidence * 0.08
+            elif tpl["root"] == key_root:
+                bias[i] = confidence * 0.08  # same root different quality
+            else:
+                bias[i] = -confidence * 0.05
+
+        # Convert bias to transition matrix adjustment
+        # Boost self-transitions for key chords, penalize non-key chords slightly
+        T = np.eye(N_CLASSES, dtype=np.float32) * 0.85
+        for i in range(N_CLASSES):
+            for j in range(N_CLASSES):
+                if i == j:
+                    T[i, j] += bias[i] * 0.1
+                else:
+                    T[i, j] += (bias[j] - bias[i]) * 0.01
+
+        T = np.maximum(T, 0.001)
+        T = T / T.sum(axis=1, keepdims=True)
+        return T
+
     def detect_harmonic(self, audio_path: str) -> dict:
-        """Detection using harmonic separation + CENS chroma (autoChord-inspired)."""
+        """Detection using harmonic separation + CENS chroma with key-context Viterbi."""
         data, sr = self._load_audio(audio_path)
         duration = len(data) / sr
 
@@ -184,12 +341,12 @@ class ChordDetector:
         hop_length = 512
         frame_time = hop_length / sr
 
-        # Template matching with better chroma
         probs = np.zeros((N_CLASSES, n_frames), dtype=np.float32)
         for f in range(n_frames):
             probs[:, f] = _classify_chroma(chroma[:, f])
 
-        chord_indices = viterbi_decode(probs, self.transitions)
+        transitions = self._build_key_context_transitions(data, sr)
+        chord_indices = viterbi_decode(probs, transitions)
         chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
 
         return {
@@ -198,14 +355,25 @@ class ChordDetector:
             "method": "harmonic",
         }
 
+    def _build_key_context_transitions(self, data: np.ndarray, sr: int) -> np.ndarray:
+        """Build Viterbi transitions biased by detected key context."""
+        try:
+            key_root, key_conf, key_mode = self.detect_key(data, sr)
+            if key_conf > 0.15:
+                return self._build_key_bias(key_root, key_conf, key_mode)
+        except Exception as e:
+            logger.debug(f"Key detection failed, using default transitions: {e}")
+        return self.transitions
+
     def detect_cnn(self, audio_path: str) -> dict:
-        """CNN-based chord detection."""
+        """CNN-based chord detection with dual CENS chroma input."""
         data, sr = self._load_audio(audio_path)
         duration = len(data) / sr
 
         self._load_model()
 
-        chroma = self.extract_cqt_chroma(data, sr)
+        # Dual-resolution CENS: fine (C2+) + bass (C1-C3) for robustness
+        chroma = self.extract_dual_cens(data, sr)
         n_frames = chroma.shape[1]
         hop_length = 512
         frame_time = hop_length / sr
@@ -219,23 +387,26 @@ class ChordDetector:
         else:
             probs = np.zeros((N_CLASSES, n_frames), dtype=np.float32)
             for f in range(n_frames):
-                probs[:, f] = _classify_chroma(chroma[:, f])
+                probs[:, f] = _classify_chroma(chroma[:12, f])
 
-        chord_indices = viterbi_decode(probs, self.transitions)
+        # Key-context Viterbi
+        transitions = self._build_key_context_transitions(data, sr)
+
+        chord_indices = viterbi_decode(probs, transitions)
         chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
 
         return {
             "chords": chords,
             "duration_secs": round(duration, 2),
-            "method": "cnn" if self._model is not None else "cqt-template",
+            "method": "cnn-cens" if self._model is not None else "cqt-template",
         }
 
     def detect_template(self, audio_path: str) -> dict:
-        """Template-based chord detection (fallback)."""
+        """Template-based chord detection with CENS dual chroma + key-context Viterbi."""
         data, sr = self._load_audio(audio_path)
         duration = len(data) / sr
 
-        chroma = self.extract_cqt_chroma(data, sr)
+        chroma = self.extract_chroma_harmonic(data, sr)
         n_frames = chroma.shape[1]
         hop_length = 512
         frame_time = hop_length / sr
@@ -244,7 +415,8 @@ class ChordDetector:
         for f in range(n_frames):
             probs[:, f] = _classify_chroma(chroma[:, f])
 
-        chord_indices = viterbi_decode(probs, self.transitions)
+        transitions = self._build_key_context_transitions(data, sr)
+        chord_indices = viterbi_decode(probs, transitions)
         chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
 
         return {
@@ -360,43 +532,15 @@ class ChordDetector:
         }
 
     def detect_resnet(self, audio_path: str) -> dict:
-        """ResNet CNN + multi-resolution chroma chord detection."""
+        """ResNet CNN + multi-resolution CENS chroma + key-context Viterbi."""
         data, sr = self._load_audio(audio_path)
         duration = len(data) / sr
 
-        # Multi-resolution chroma
-        import librosa
-        harmonic, _ = librosa.effects.hpss(data, margin=3.0)
-
-        # Fine CQT chroma
-        cqt = np.abs(librosa.cqt(
-            y=harmonic, sr=sr, hop_length=512, n_bins=84, bins_per_octave=12,
-            fmin=librosa.note_to_hz("C2"),
-        ))
-        chroma_fine = librosa.feature.chroma_cens(
-            C=cqt, sr=sr, hop_length=512, n_chroma=12, bins_per_octave=12,
-        )
-
-        # Coarse CQT (lower octaves for bass notes)
-        cqt_bass = np.abs(librosa.cqt(
-            y=harmonic, sr=sr, hop_length=512, n_bins=36, bins_per_octave=12,
-            fmin=librosa.note_to_hz("C2"),
-        ))
-        chroma_bass = librosa.feature.chroma_cens(
-            C=cqt_bass, sr=sr, hop_length=512, n_chroma=12, bins_per_octave=12,
-        )
-
-        # Stack channels: [fine_chroma, bass_chroma] = 24 channels
-        chroma = np.vstack([chroma_fine, chroma_bass])
-        per_frame_norm = np.linalg.norm(chroma, axis=0)
-        per_frame_norm[per_frame_norm < 1e-8] = 1.0
-        chroma = chroma / per_frame_norm
-        chroma = chroma.astype(np.float32)
+        chroma = self.extract_dual_cens(data, sr)
         n_frames = chroma.shape[1]
         hop_length = 512
         frame_time = hop_length / sr
 
-        # Use ResNet CNN
         self._load_resnet_model()
 
         if self._resnet_model is not None:
@@ -410,7 +554,8 @@ class ChordDetector:
             for f in range(n_frames):
                 probs[:, f] = _classify_chroma(chroma[:12, f])
 
-        chord_indices = viterbi_decode(probs, self.transitions)
+        transitions = self._build_key_context_transitions(data, sr)
+        chord_indices = viterbi_decode(probs, transitions)
         chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
 
         return {
@@ -578,13 +723,13 @@ def _indices_to_events(indices, n_frames, frame_time, sr, total_samples) -> list
 
 
 class ChordCNN:
-    """Lightweight 1D CNN for frame-level chord classification on chroma input."""
-    def __init__(self, n_classes: int = N_CLASSES):
+    """Lightweight 1D CNN for frame-level chord classification on dual CENS chroma input."""
+    def __init__(self, n_classes: int = N_CLASSES, in_channels: int = 24):
         import torch
         import torch.nn as nn
 
         self.net = nn.Sequential(
-            nn.Conv1d(12, 64, kernel_size=7, padding=3),
+            nn.Conv1d(in_channels, 64, kernel_size=7, padding=3),
             nn.BatchNorm1d(64),
             nn.ReLU(inplace=True),
             nn.Conv1d(64, 128, kernel_size=5, padding=2),

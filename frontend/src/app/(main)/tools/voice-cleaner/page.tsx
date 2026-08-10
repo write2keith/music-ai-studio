@@ -31,6 +31,8 @@ export default function VoiceCleanerPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [noiseReduction, setNoiseReduction] = useState(0.7);
+  const [cleanMethod, setCleanMethod] = useState<"noisereduce" | "deepfilternet" | "spectral">("noisereduce");
+  const [stationaryNoise, setStationaryNoise] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<VoiceCleanResult | null>(null);
@@ -79,7 +81,7 @@ export default function VoiceCleanerPage() {
     setError("");
     setResult(null);
     try {
-      const data = await api.tools.voiceClean(file, noiseReduction);
+      const data = await api.tools.voiceClean(file, noiseReduction, cleanMethod, stationaryNoise);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -178,6 +180,71 @@ export default function VoiceCleanerPage() {
           </div>
         </div>
 
+        {/* Noise Reduction Method */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5">Cleaning Method</label>
+          <div className="flex gap-1">
+            {([
+              { value: "noisereduce", label: "Spectral Gate", desc: "Advanced gating, low artifacts" },
+              { value: "deepfilternet", label: "DeepFilterNet", desc: "Neural speech enhancement" },
+              { value: "spectral", label: "Classic SpecSub", desc: "Legacy Wiener filtering" },
+            ] as const).map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setCleanMethod(m.value)}
+                title={m.desc}
+                className={cn(
+                  "flex-1 px-2 py-2 rounded-md text-xs font-medium transition-all border text-center",
+                  cleanMethod === m.value
+                    ? "bg-daw-accent/10 text-daw-accent border-daw-accent/30"
+                    : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border"
+                )}
+              >
+                <div>{m.label}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Stationary Toggle (noisereduce only) */}
+        <AnimatePresence>
+          {cleanMethod === "noisereduce" && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <label className="flex items-center justify-between cursor-pointer px-3 py-2 rounded-lg bg-daw-surface-2/60 border border-daw-border">
+                <div>
+                  <span className="text-xs text-daw-text">Noise type</span>
+                  <p className="text-[10px] text-daw-text-dim">
+                    {stationaryNoise
+                      ? "Stationary (AC hum, fan noise) — profiles from quiet frames"
+                      : "Non-stationary (traffic, clicks) — adaptive dynamic tracking"}
+                  </p>
+                </div>
+                <div className="relative inline-flex items-center shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={stationaryNoise}
+                    onChange={(e) => setStationaryNoise(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className={cn(
+                    "w-9 h-5 rounded-full transition-colors",
+                    stationaryNoise ? "bg-daw-green" : "bg-daw-cyan"
+                  )} />
+                  <div className={cn(
+                    "absolute w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform",
+                    stationaryNoise ? "translate-x-0.5" : "translate-x-5"
+                  )} />
+                </div>
+              </label>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Process Button */}
         <Button
           size="lg"
@@ -227,7 +294,9 @@ export default function VoiceCleanerPage() {
                 </div>
                 <div className="flex items-center gap-3 mt-0.5 text-[10px] text-daw-text-dim">
                   <span>{formatSecs(result.duration)}</span>
-                  <span>{result.noise_frames} noise frames profiled</span>
+                  {result.method && <span className="text-daw-accent">{result.method}</span>}
+                  {result.reduction_db > 0 && <span>~{result.reduction_db}dB cut</span>}
+                  {result.noise_frames > 0 && <span>{result.noise_frames} noise frames</span>}
                 </div>
               </div>
             </div>

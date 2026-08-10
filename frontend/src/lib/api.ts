@@ -284,27 +284,50 @@ export const api = {
       const qs = method ? `?method=${encodeURIComponent(method)}` : "";
       return upload<ChordDetectResult>(`/api/tools/chord-detect${qs}`, fd);
     },
-    pitchTempo: (file: File, pitchSemitones: number, tempoFactor: number) => {
+    pitchTempo: (file: File, pitchSemitones: number, tempoFactor: number, formantPreserved: boolean = true, transientPreservation: number = 0) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("pitch_semitones", String(pitchSemitones));
       fd.append("tempo_factor", String(tempoFactor));
+      fd.append("formant_preserved", String(formantPreserved));
+      fd.append("transient_preservation", String(transientPreservation));
       return upload<PitchTempoResult>("/api/tools/pitch-tempo", fd);
     },
-    lyricTranscribe: (file: File, language: string = "auto") => {
+    lyricTranscribe: (file: File, language: string = "auto", isolateVocals: boolean = false) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("language", language);
+      fd.append("isolate_vocals", String(isolateVocals));
       return upload<LyricTranscribeResult>("/api/tools/lyric-transcribe", fd);
     },
     lyricTranscribeStatus: (jobId: string) =>
       request<LyricTranscribeResult>(`/api/tools/lyric-transcribe/${jobId}`),
-    guitarTab: (file: File, tuningKey: string = "standard") => {
+    guitarTab: (file: File, tuningKey: string = "standard", separateFirst: boolean = false, analysisMethod: string = "advanced") => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("tuning_key", tuningKey);
+      fd.append("separate_first", separateFirst ? "true" : "false");
+      fd.append("analysis_method", analysisMethod);
       return upload<GuitarTabResult>("/api/tools/guitar-tab", fd);
     },
+    importGuitarPro: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return upload<GPImportResult>("/api/tools/import-gp", fd);
+    },
+    exportGuitarPro: (notes: TabNote[], tuningKey: string, title: string, tempo: number = 120) =>
+      request<Blob>("/api/tools/export-gp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes, tuning_key: tuningKey, title, tempo }),
+        responseType: "blob",
+      }),
+    searchTabs: (artist: string, title: string, source: string = "songsterr") =>
+      request<TabSearchResult>("/api/tools/search-tabs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artist, title, source }),
+      }),
     submitFeedback: (feedback: FeedbackRequest) =>
       request<CalibrationResponse>("/api/tools/feedback", {
         method: "POST",
@@ -319,10 +342,12 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes, tempo }),
       }),
-    voiceClean: (file: File, noiseReduction: number = 0.7) => {
+    voiceClean: (file: File, noiseReduction: number = 0.7, method: string = "noisereduce", stationary: boolean = true) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("noise_reduction", String(noiseReduction));
+      fd.append("method", method);
+      fd.append("stationary", String(stationary));
       return upload<VoiceCleanResult>("/api/tools/voice-clean", fd);
     },
     leadBackSplit: (file: File) => {
@@ -337,10 +362,11 @@ export const api = {
       fd.append("formant_shift", String(formantShift));
       return upload<VoiceChangeResult>("/api/tools/voice-change", fd);
     },
-    dereverb: (file: File, strength: number = 0.7) => {
+    dereverb: (file: File, strength: number = 0.7, method: string = "wpe") => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("strength", String(strength));
+      fd.append("method", method);
       return upload<DereverbResult>("/api/tools/dereverb", fd);
     },
   },
@@ -402,6 +428,27 @@ interface VocalScoreResult {
   user_duration: number;
   total_frames: number;
   matched_frames: number;
+  pitch_accuracy?: {
+    cents_mad: number;
+    cents_std: number;
+    score: number;
+    in_tune_pct: number;
+  } | null;
+  stability?: {
+    f0_variance_cents: number;
+    vibrato_rate_hz: number;
+    score: number;
+  } | null;
+  timing?: {
+    dtw_cost: number;
+    duration_ratio: number;
+    score: number;
+  } | null;
+  dynamics?: {
+    rms_correlation: number;
+    dynamic_range_match: number;
+    score: number;
+  } | null;
 }
 
 interface VocalPrepResult {
@@ -446,6 +493,8 @@ export interface PitchTempoResult {
   duration_secs: number;
   original_bpm: number;
   adjusted_bpm: number;
+  engine: string;
+  formant_preserved: boolean;
 }
 
 export interface LyricLine {
@@ -500,6 +549,7 @@ export interface GuitarTabResult {
   note_count: number;
   tuning: string[];
   tuning_key: string;
+  method?: string;
 }
 
 export interface FeedbackRequest {
@@ -532,6 +582,8 @@ export interface VoiceCleanResult {
   filename: string;
   duration: number;
   noise_frames: number;
+  method: string;
+  reduction_db: number;
 }
 
 export interface LeadBackResult {
@@ -558,4 +610,22 @@ export interface DereverbResult {
   filename: string;
   duration: number;
   strength: number;
+  method: string;
+  hp_cutoff_hz: number;
+  detected_f0_hz: number;
+}
+
+export interface GPImportResult {
+  ok: boolean;
+  notes: TabNote[];
+  note_count: number;
+  title: string;
+  artist: string;
+  track_name: string;
+}
+
+export interface TabSearchResult {
+  ok: boolean;
+  results: { id: string; title: string; artist: string; source: string; url: string; has_tab: boolean }[];
+  source: string;
 }

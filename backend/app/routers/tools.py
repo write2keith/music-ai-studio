@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 import logging
 import asyncio
@@ -348,12 +350,17 @@ def _detect_notes_fft(audio_path: str, calibration: dict | None = None) -> dict:
         peak_rel = int(np.argmax(fft_valid))
         peak_idx = valid_indices[peak_rel]
 
-        if 1 <= peak_rel < len(fft_valid) - 1:
-            y0 = fft[peak_idx]
-            y_left = fft_valid[peak_rel - 1]
-            y_right = fft_valid[peak_rel + 1]
-            delta = 0.5 * (y_left - y_right) / (y_left - 2 * y0 + y_right + 1e-10)
-            delta = max(-0.5, min(0.5, delta))
+        # Parabolic interpolation with both relative and absolute bounds checks
+        if 1 <= peak_rel < len(fft_valid) - 1 and 2 <= peak_idx < len(fft) - 2:
+            y0 = float(fft_valid[peak_rel])
+            y_left = float(fft_valid[peak_rel - 1])
+            y_right = float(fft_valid[peak_rel + 1])
+            denom = y_left - 2.0 * y0 + y_right
+            if abs(denom) > 1e-12:
+                delta = 0.5 * (y_left - y_right) / denom
+                delta = max(-0.5, min(0.5, delta))
+            else:
+                delta = 0.0
             freq = valid_freqs[peak_rel] + delta * (valid_freqs[1] - valid_freqs[0])
         else:
             freq = valid_freqs[peak_rel]
@@ -415,6 +422,346 @@ def _detect_notes_fft(audio_path: str, calibration: dict | None = None) -> dict:
         "duration_secs": round(duration, 1),
         "method": "fft",
     }
+
+
+def _detect_notes_cqt(audio_path: str) -> dict:
+    """Note detection using Constant-Q Transform for musically-spaced bins.
+    CQT matches human pitch perception (logarithmic) vs linear FFT.
+    Better low-frequency resolution for bass/guitar."""
+    import numpy as np
+    import librosa
+
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
+    data = data.astype(np.float32)
+    mx = np.max(np.abs(data))
+    if mx > 0:
+        data = data / mx
+
+    duration = len(data) / sr
+
+    # Harmonic-percussive separation
+    harmonic, percussive = librosa.effects.hpss(data, margin=3.0)
+
+    # CQT with 3 octaves below A440, 12 bins per octave, 7 octaves
+    n_bins = 84  # 7 octaves * 12 bins/octave
+    cqt = np.abs(librosa.cqt(
+        harmonic, sr=sr, hop_length=512,
+        n_bins=n_bins, bins_per_octave=12,
+        fmin=librosa.note_to_hz("C2"),
+    ))
+    cqt_db = librosa.amplitude_to_db(cqt, ref=np.max)
+
+    # Onset detection on CQT mel-band energy
+    onset_env = librosa.onset.onset_strength(
+        S=cqt_db, sr=sr, hop_length=512,
+        aggregate=np.median,
+    )
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env, sr=sr, hop_length=512,
+        backtrack=True, units="frames",
+    )
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+    onset_times = np.concatenate([[0.0], onset_times, [duration]])
+
+    # CQT frequency axis (log spaced)
+    cqt_freqs = librosa.cqt_frequencies(n_bins=n_bins, fmin=librosa.note_to_hz("C2"), bins_per_octave=12)
+    cqt_times = librosa.frames_to_time(np.arange(cqt.shape[1]), sr=sr, hop_length=512)
+
+    # Noise floor from quietest frames
+    frame_energy = np.mean(cqt_db, axis=0)
+    noise_floor = np.percentile(frame_energy, 15)
+
+    notes = []
+    for seg_idx in range(len(onset_times) - 1):
+        t_start = onset_times[seg_idx]
+        t_end = onset_times[seg_idx + 1]
+        seg_dur = t_end - t_start
+
+        if seg_dur < 0.03:
+            continue
+
+        mask = (cqt_times >= t_start) & (cqt_times < t_end)
+        if not np.any(mask):
+            continue
+
+        seg_mag = np.mean(cqt[:, mask], axis=1)
+
+        # Peak picking on CQT spectrum
+        for _ in range(4):
+            peak_bin = int(np.argmax(seg_mag))
+            if peak_bin < 2 or peak_bin >= len(seg_mag) - 2:
+                break
+            peak_db = float(seg_mag[peak_bin])
+
+            # Dynamic threshold based on local noise floor
+            local_floor = np.median(seg_mag[max(0, peak_bin - 6):peak_bin + 7])
+            if peak_db < local_floor + 6:  # 6 dB above local noise
+                break
+
+            # Parabolic interpolation in log-frequency domain
+            y0 = float(seg_mag[peak_bin])
+            yl = float(seg_mag[peak_bin - 1])
+            yr = float(seg_mag[peak_bin + 1])
+            denom = yl - 2.0 * y0 + yr
+            if abs(denom) > 1e-12:
+                frac = 0.5 * (yl - yr) / denom
+                frac = max(-0.5, min(0.5, frac))
+            else:
+                frac = 0.0
+
+            # Convert CQT bin to frequency (log interpolation)
+            log_freq = np.log2(cqt_freqs[peak_bin]) + frac / 12.0
+            freq_hz = 2.0 ** log_freq
+
+            if freq_hz < 50 or freq_hz > 4000:
+                seg_mag[peak_bin - 2:peak_bin + 3] = -80
+                continue
+
+            midi = int(round(69 + 12 * np.log2(freq_hz / 440.0)))
+            if midi < 28 or midi > 100:
+                seg_mag[peak_bin - 2:peak_bin + 3] = -80
+                continue
+
+            note_name = NOTE_NAMES[midi % 12] + str(midi // 12 - 1)
+            confidence = min(1.0, (peak_db - local_floor) / 18.0)
+
+            notes.append({
+                "start_time": round(t_start, 3),
+                "end_time": round(t_end, 3),
+                "pitch": midi,
+                "note_name": note_name,
+                "velocity": round(max(0.1, confidence), 2),
+            })
+
+            # Suppress this peak and its octaves
+            for oct_shift in [0, 1, -1]:
+                neighbor = peak_bin + oct_shift * 12
+                if 0 <= neighbor < len(seg_mag):
+                    lo = max(0, neighbor - 3)
+                    hi = min(len(seg_mag), neighbor + 4)
+                    seg_mag[lo:hi] = -80
+
+    if not notes:
+        logger.info("CQT detection found no notes, falling back to FFT")
+        return _detect_notes_fft(audio_path)
+
+    notes.sort(key=lambda n: n["start_time"])
+
+    # Merge adjacent same-pitch notes
+    merged = []
+    for note in notes:
+        if merged and abs(note["start_time"] - merged[-1]["end_time"]) < 0.05 and note["pitch"] == merged[-1]["pitch"]:
+            merged[-1]["end_time"] = note["end_time"]
+            merged[-1]["velocity"] = round(max(merged[-1]["velocity"], note["velocity"]), 2)
+        else:
+            merged.append(note)
+
+    return {
+        "notes": merged,
+        "duration_secs": round(duration, 2),
+        "method": "cqt",
+    }
+
+
+def _detect_notes_ml(audio_path: str) -> dict:
+    """Polyphonic note detection using Spotify Basic Pitch machine learning model.
+    Handles dense polyphony (chords, fast runs) better than pure DSP approaches.
+    Falls back to advanced HPS detection if Basic Pitch is unavailable."""
+    import numpy as np
+    import librosa
+
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
+    if sr != 22050:
+        import scipy.signal
+        ratio = 22050 / sr
+        new_len = int(len(data) * ratio)
+        data = scipy.signal.resample(data, new_len)
+        sr = 22050
+
+    data = data.astype(np.float32)
+    mx = np.max(np.abs(data))
+    if mx > 0:
+        data = data / mx
+
+    try:
+        from basic_pitch.inference import predict
+        from basic_pitch import ICASSP_2022_MODEL_PATH
+
+        model_output, midi_data, note_events = predict(
+            audio_path,
+            model_or_model_path=ICASSP_2022_MODEL_PATH,
+        )
+
+        notes = []
+        for ne in note_events:
+            duration = ne.end_time - ne.start_time
+            if duration < 0.03:
+                continue
+            notes.append({
+                "start_time": round(float(ne.start_time), 3),
+                "end_time": round(float(ne.end_time), 3),
+                "pitch": int(ne.pitch),
+                "note_name": NOTE_NAMES[int(ne.pitch) % 12] + str(int(ne.pitch) // 12 - 1),
+                "velocity": round(float(ne.velocity) / 127.0, 2) if hasattr(ne, "velocity") else 0.7,
+            })
+
+        if not notes:
+            logger.info("Basic Pitch found no notes, falling back to advanced")
+            return _detect_notes_advanced(audio_path)
+
+        notes.sort(key=lambda n: n["start_time"])
+        duration = len(data) / sr
+        return {
+            "notes": notes,
+            "duration_secs": round(duration, 2),
+            "method": "ml-basic-pitch",
+        }
+
+    except ImportError:
+        logger.warning("Basic Pitch not installed, using advanced detection")
+        return _detect_notes_advanced(audio_path)
+    except Exception as e:
+        logger.warning(f"Basic Pitch inference failed: {e}, using advanced fallback")
+        return _detect_notes_advanced(audio_path)
+
+
+def _detect_notes_advanced(audio_path: str) -> dict:
+    """Advanced polyphonic note detection using HPSS + onset detection + HPS.
+    More accurate than raw FFT for polyphonic material."""
+    import numpy as np
+    import librosa
+
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
+    data = data.astype(np.float32)
+    mx = np.max(np.abs(data))
+    if mx > 0:
+        data = data / mx
+
+    duration = len(data) / sr
+
+    # Harmonic-percussive separation for cleaner note detection
+    harmonic, _ = librosa.effects.hpss(data, margin=3.0)
+
+    # Onset detection for note boundaries
+    onset_frames = librosa.onset.onset_detect(
+        y=harmonic, sr=sr, hop_length=512,
+        backtrack=True, units="frames",
+    )
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+    onset_times = np.concatenate([[0.0], onset_times, [duration]])
+
+    # High-res STFT for pitch estimation
+    n_fft = 4096
+    hop_length = 512
+    stft = np.abs(librosa.stft(harmonic, n_fft=n_fft, hop_length=hop_length))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    times = librosa.frames_to_time(np.arange(stft.shape[1]), sr=sr, hop_length=hop_length)
+
+    notes = []
+    for seg_idx in range(len(onset_times) - 1):
+        t_start = onset_times[seg_idx]
+        t_end = onset_times[seg_idx + 1]
+        seg_dur = t_end - t_start
+
+        if seg_dur < 0.03:
+            continue
+
+        # Get frames for this segment
+        mask = (times >= t_start) & (times < t_end)
+        if not np.any(mask):
+            continue
+
+        seg_spectrum = np.mean(stft[:, mask], axis=1)
+
+        # Find peaks using HPS (Harmonic Product Spectrum)
+        pitches = _hps_peak_picking(seg_spectrum, freqs, sr)
+
+        for pitch_hz, conf in pitches:
+            if pitch_hz < 50 or pitch_hz > 4000:
+                continue
+            midi = int(round(69 + 12 * np.log2(pitch_hz / 440.0)))
+            if midi < 28 or midi > 100:
+                continue
+            note_name = NOTE_NAMES[midi % 12] + str(midi // 12 - 1)
+            notes.append({
+                "start_time": round(t_start, 3),
+                "end_time": round(t_end, 3),
+                "pitch": midi,
+                "note_name": note_name,
+                "velocity": round(min(1.0, conf), 2),
+            })
+
+    if not notes:
+        # Fallback to FFT
+        logger.info("Advanced detection found no notes, falling back to FFT")
+        return _detect_notes_polyphonic(audio_path)
+
+    # Merge adjacent same-pitch notes
+    notes.sort(key=lambda n: (n["pitch"], n["start_time"]))
+    merged = []
+    for note in notes:
+        if merged and abs(note["start_time"] - merged[-1]["end_time"]) < 0.05 and note["pitch"] == merged[-1]["pitch"]:
+            merged[-1]["end_time"] = note["end_time"]
+        else:
+            merged.append(note)
+
+    merged.sort(key=lambda n: n["start_time"])
+
+    return {
+        "notes": merged,
+        "duration_secs": round(duration, 2),
+        "method": "hps-advanced",
+    }
+
+
+def _hps_peak_picking(spectrum: np.ndarray, freqs: np.ndarray, sr: int) -> list[tuple[float, float]]:
+    """Extract up to 6 pitches using Harmonic Product Spectrum."""
+    import numpy as np
+
+    results = []
+    work = spectrum.copy()
+    lo_bin = int(50 * len(freqs) / (sr / 2))
+    hi_bin = int(4000 * len(freqs) / (sr / 2))
+    work[:lo_bin] = 0
+    work[hi_bin:] = 0
+
+    total_energy = np.sum(work)
+    if total_energy < 1e-10:
+        return []
+
+    noise_floor = np.median(work[lo_bin:hi_bin]) * 2
+
+    for _ in range(6):
+        peak_bin = int(np.argmax(work[lo_bin:hi_bin])) + lo_bin
+        peak_mag = float(work[peak_bin])
+
+        if peak_mag < noise_floor:
+            break
+
+        # Sub-bin interpolation
+        if 1 <= peak_bin < len(work) - 1:
+            y0 = float(work[peak_bin])
+            yl = float(work[peak_bin - 1])
+            yr = float(work[peak_bin + 1])
+            delta = 0.5 * (yl - yr) / (yl - 2 * y0 + yr + 1e-10)
+            delta = max(-0.5, min(0.5, delta))
+            freq = freqs[peak_bin] + delta * (freqs[1] - freqs[0])
+        else:
+            freq = freqs[peak_bin]
+
+        confidence = peak_mag / (total_energy + 1e-10) * 10
+        results.append((freq, min(1.0, confidence)))
+
+        # Suppress harmonics
+        for h in [1, 2, 3, 4, 5, 6]:
+            harm_freq = freq * h
+            center = int(harm_freq * len(freqs) / (sr / 2))
+            bw = max(2, int(freq * 0.03 / (sr / 2) * len(freqs)))
+            lo = max(0, center - bw)
+            hi = min(len(work), center + bw + 1)
+            work[lo:hi] *= 0.05
+
+    return results
 
 
 def _detect_notes_polyphonic(audio_path: str) -> dict:
@@ -618,6 +965,10 @@ def _do_transcribe(tmp_path: str, output_dir: str, method: str, store_id: str):
 
     if method == "polyphonic":
         result = _detect_notes_polyphonic(wav_path)
+    elif method == "cqt":
+        result = _detect_notes_cqt(wav_path)
+    elif method == "ml":
+        result = _detect_notes_ml(wav_path)
     else:
         from ..services.calibration import get_detection_params
         cal = get_detection_params(store_id)
@@ -637,6 +988,10 @@ class VocalScoreResponse(BaseModel):
     user_duration: float = 0.0
     total_frames: int = 0
     matched_frames: int = 0
+    pitch_accuracy: dict | None = None
+    stability: dict | None = None
+    timing: dict | None = None
+    dynamics: dict | None = None
 
 
 def _extract_pitch_contour(audio_path: str) -> list[dict]:
@@ -678,9 +1033,28 @@ def _extract_pitch_contour(audio_path: str) -> list[dict]:
             contour.append({"time": round(i * hop_sec + window_sec / 2, 3), "midi": -1})
             continue
 
-        peak_idx = np.argmax(fft[valid])
-        freq = freqs[valid][peak_idx]
-        midi, _ = _hz_to_note(freq)
+        valid_idx = np.where(valid)[0]
+        peak_rel = int(np.argmax(fft[valid]))
+        peak_idx = valid_idx[peak_rel]
+
+        # Parabolic interpolation with bounds protection
+        if 1 <= peak_rel < len(valid_idx) - 1 and 2 <= peak_idx < len(fft) - 2:
+            y0 = float(fft[peak_idx])
+            yl = float(fft[valid_idx[peak_rel - 1]])
+            yr = float(fft[valid_idx[peak_rel + 1]])
+            denom = yl - 2.0 * y0 + yr
+            if abs(denom) > 1e-12:
+                delta = 0.5 * (yl - yr) / denom
+                delta = max(-0.5, min(0.5, delta))
+            else:
+                delta = 0.0
+            freq_hz = (freqs[peak_idx]
+                       + delta * (freqs[min(valid_idx[peak_rel] + 1, len(freqs) - 1)]
+                                  - freqs[valid_idx[peak_rel]]))
+        else:
+            freq_hz = freqs[peak_idx]
+
+        midi, _ = _hz_to_note(freq_hz)
         contour.append({"time": round(i * hop_sec + window_sec / 2, 3), "midi": midi})
 
     return contour
@@ -736,56 +1110,100 @@ async def vocal_score(
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    paths = []
-    contours = []
+    all_temps: list[Path] = []
+    wav_paths = []
 
     for label, upload in [("ref", reference), ("user", recording)]:
         content = await upload.read()
         ext = Path(upload.filename).suffix if upload.filename else ".wav"
         tmp_path = output_dir / f"vocal_{label}_{uuid.uuid4().hex[:12]}{ext}"
         tmp_path.write_bytes(content)
+        all_temps.append(tmp_path)
 
-        wav_path = tmp_path
         try:
             import scipy.io.wavfile
-            scipy.io.wavfile.read(str(wav_path))
+            scipy.io.wavfile.read(str(tmp_path))
+            wav_paths.append(str(tmp_path))
         except Exception:
             try:
                 from pydub import AudioSegment
                 audio = AudioSegment.from_file(str(tmp_path))
                 wav_path = output_dir / f"vocal_{label}_{uuid.uuid4().hex[:12]}.wav"
                 audio.export(str(wav_path), format="wav")
-                tmp_path.unlink(missing_ok=True)
-                scipy.io.wavfile.read(str(wav_path))
+                wav_paths.append(str(wav_path))
+                all_temps.append(wav_path)
             except Exception as e:
-                for p in set(paths + [tmp_path, wav_path]):
+                for p in all_temps:
                     p.unlink(missing_ok=True)
                 raise HTTPException(status_code=400, detail=f"Cannot read {label} audio: {str(e)[:100]}")
 
-        paths.extend([tmp_path, wav_path])
-        contour = _extract_pitch_contour(str(wav_path))
-        contours.append(contour)
+    ref_path, user_path = wav_paths
 
-    ref_contour, user_contour = contours
-    result = _score_contours(ref_contour, user_contour)
+    try:
+        from ..services.vocal_coach import score_vocal_performance
+        result = score_vocal_performance(ref_path, user_path)
+        ref_contour = result["ref_pitch"]
+        user_contour = result["user_pitch"]
+        pitch_acc = result["pitch_accuracy"]
+        stability = result["stability"]
+        timing = result["timing"]
+        dynamics = result["dynamics"]
+        total_frames = len(ref_contour)
+        matched = int(len(ref_contour) * max(0, result["composite_score"] / 100.0))
+    except Exception as e:
+        logger.warning(f"New scoring pipeline failed ({e}), using legacy fallback")
+        ref_contour = _extract_pitch_contour(ref_path)
+        user_contour = _extract_pitch_contour(user_path)
+        legacy = _score_contours(ref_contour, user_contour)
+        result = {
+            "composite_score": legacy["score"],
+            "grade": legacy["grade"],
+            "pitch_accuracy": None,
+            "stability": None,
+            "timing": None,
+            "dynamics": None,
+            "ref_pitch": ref_contour,
+            "user_pitch": user_contour,
+            "ref_duration": ref_contour[-1]["time"] if ref_contour else 0,
+            "user_duration": user_contour[-1]["time"] if user_contour else 0,
+        }
+        pitch_acc = None
+        stability = None
+        timing = None
+        dynamics = None
+        total_frames = legacy.get("total_frames", 0)
+        matched = legacy.get("matched_frames", 0)
 
-    for p in set(paths):
+    for p in all_temps:
         p.unlink(missing_ok=True)
+    # Also clean up output/lyrics vocal isolation temp files older than 1h
+    try:
+        import time
+        now = time.time()
+        for f in Path("output/lyrics").glob("vocals_isolated_*.wav"):
+            if now - f.stat().st_mtime > 3600:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
 
-    ref_dur = ref_contour[-1]["time"] if ref_contour else 0
-    user_dur = user_contour[-1]["time"] if user_contour else 0
+    ref_dur = result["ref_duration"]
+    user_dur = result["user_duration"]
 
     return VocalScoreResponse(
         ok=True,
-        score=result["score"],
+        score=result["composite_score"],
         max_score=100.0,
         grade=result["grade"],
         ref_pitch=ref_contour,
         user_pitch=user_contour,
-        ref_duration=round(ref_dur, 1),
-        user_duration=round(user_dur, 1),
-        total_frames=result["total_frames"],
-        matched_frames=result["matched_frames"],
+        ref_duration=round(ref_dur, 1) if ref_dur else 0,
+        user_duration=round(user_dur, 1) if user_dur else 0,
+        total_frames=total_frames if total_frames else 0,
+        matched_frames=matched if matched else 0,
+        pitch_accuracy=pitch_acc,
+        stability=stability,
+        timing=timing,
+        dynamics=dynamics,
     )
 
 
@@ -1189,6 +1607,8 @@ class PitchTempoResponse(BaseModel):
     duration_secs: float = 0.0
     original_bpm: float = 0.0
     adjusted_bpm: float = 0.0
+    engine: str = ""
+    formant_preserved: bool = False
 
 
 @router.post("/pitch-tempo", response_model=PitchTempoResponse)
@@ -1196,9 +1616,12 @@ async def adjust_pitch_tempo(
     file: UploadFile = File(...),
     pitch_semitones: float = Form(default=0.0),
     tempo_factor: float = Form(default=1.0),
+    formant_preserved: bool = Form(default=True),
+    transient_preservation: int = Form(default=0),
 ):
     pitch_semitones = max(-12.0, min(12.0, pitch_semitones))
     tempo_factor = max(0.5, min(2.0, tempo_factor))
+    transient_preservation = max(0, min(2, transient_preservation))
 
     content = await file.read()
     ext = Path(file.filename).suffix if file.filename else ".wav"
@@ -1206,22 +1629,31 @@ async def adjust_pitch_tempo(
     tmp_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path.write_bytes(content)
 
-    result = await _run_blocking(
-        _do_pitch_tempo, str(tmp_path), pitch_semitones, tempo_factor,
-    )
+    if formant_preserved:
+        from ..services.pitch_tempo import process_pitch_tempo
+        result = await _run_blocking(
+            process_pitch_tempo,
+            str(tmp_path), pitch_semitones, tempo_factor,
+            formant_preserved=True, transient_preservation=transient_preservation,
+            output_dir=str(Path(settings.UPLOAD_DIR)),
+        )
+    else:
+        result = await _run_blocking(
+            _do_pitch_tempo, str(tmp_path), pitch_semitones, tempo_factor,
+        )
 
     tmp_path.unlink(missing_ok=True)
     return PitchTempoResponse(**result)
 
 
 def _do_pitch_tempo(tmp_path: str, pitch_semitones: float, tempo_factor: float) -> dict:
+    """Legacy pydub-based processing. Used when formant_preserved=False."""
     from pydub import AudioSegment
     tmp = Path(tmp_path)
     output_dir = Path(settings.UPLOAD_DIR)
 
     audio = AudioSegment.from_file(str(tmp))
-
-    original_bpm = len(audio) and (audio.frame_rate / len(audio.get_array_of_samples())) or 0.0
+    original_duration = len(audio) / 1000.0
 
     if tempo_factor != 1.0:
         try:
@@ -1247,15 +1679,18 @@ def _do_pitch_tempo(tmp_path: str, pitch_semitones: float, tempo_factor: float) 
     out_path = output_dir / out_filename
     audio.export(str(out_path), format="wav")
 
-    adjusted_bpm = original_bpm * tempo_factor if original_bpm > 0 else 0.0
+    original_bpm = 120.0
+    adjusted_bpm = original_bpm * tempo_factor
 
     return {
         "ok": True,
         "filename": out_filename,
         "url": f"/api/audio/{out_filename}",
         "duration_secs": round(len(audio) / 1000.0, 1),
-        "original_bpm": round(original_bpm if original_bpm > 0 else 120.0, 1),
+        "original_bpm": round(original_bpm, 1),
         "adjusted_bpm": round(adjusted_bpm, 1),
+        "engine": "pydub-legacy",
+        "formant_preserved": False,
     }
 
 
@@ -1299,6 +1734,7 @@ class LyricTranscribeResponse(BaseModel):
 async def lyric_transcribe(
     file: UploadFile = File(...),
     language: str = Form(default="auto"),
+    isolate_vocals: bool = Form(default=False),
 ):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1311,9 +1747,9 @@ async def lyric_transcribe(
     from ..queue.worker import queue
     job = queue.submit(
         "lyric_transcribe",
-        {"audio_path": str(save_path), "language": language},
+        {"audio_path": str(save_path), "language": language, "isolate_vocals": isolate_vocals},
     )
-    logger.info(f"Lyric transcribe job {job.id} enqueued")
+    logger.info(f"Lyric transcribe job {job.id} enqueued (isolate_vocals={isolate_vocals})")
 
     return LyricTranscribeResponse(ok=True, job_id=job.id, status="queued")
 
@@ -1419,6 +1855,7 @@ class GuitarTabResponse(BaseModel):
     note_count: int = 0
     tuning: list[str] = ["E", "A", "D", "G", "B", "e"]
     tuning_key: str = "standard"
+    method: str = ""
 
 
 @router.post("/guitar-tab", response_model=GuitarTabResponse)
@@ -1426,6 +1863,8 @@ async def guitar_tab(
     file: UploadFile = File(...),
     store_id: str = Form(default="default"),
     tuning_key: str = Form(default=DEFAULT_TUNING),
+    separate_first: bool = Form(default=False),
+    analysis_method: str = Form(default="advanced"),
 ):
     tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
     output_dir = Path(settings.UPLOAD_DIR)
@@ -1437,7 +1876,7 @@ async def guitar_tab(
     tmp_path.write_bytes(content)
 
     result = await _run_blocking(
-        _do_guitar_tab, str(tmp_path), str(output_dir), store_id, tuning_key,
+        _do_guitar_tab, str(tmp_path), str(output_dir), store_id, tuning_key, separate_first, analysis_method,
     )
 
     tmp_path.unlink(missing_ok=True)
@@ -1449,17 +1888,20 @@ async def guitar_tab(
         note_count=result["note_count"],
         tuning=tuning["strings"],
         tuning_key=tuning_key,
+        method=result.get("method", analysis_method),
     )
 
 
-def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: str):
-    import scipy.io.wavfile
+def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: str, separate_first: bool = False, analysis_method: str = "advanced"):
+    import librosa
     tmp = Path(tmp_path)
     out = Path(output_dir)
     wav_path_str = str(tmp)
 
+    # Load audio for analysis
     try:
-        scipy.io.wavfile.read(wav_path_str)
+        data, sr = librosa.load(str(tmp), sr=None, mono=True)
+        data = data.astype(np.float32)
     except Exception:
         try:
             from pydub import AudioSegment
@@ -1467,25 +1909,86 @@ def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: st
             wav_path_str = str(out / f"tab_{uuid.uuid4().hex[:12]}.wav")
             audio.export(wav_path_str, format="wav")
             tmp.unlink(missing_ok=True)
+            data, sr = librosa.load(wav_path_str, sr=None, mono=True)
+            data = data.astype(np.float32)
         except Exception as e:
             for p in [tmp, Path(wav_path_str)]:
                 p.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
 
+    analyze_path = wav_path_str
+
+    # Step 1: Demucs separation (optional)
+    if separate_first:
+        logger.info("Guitar tab: running Demucs source separation...")
+        try:
+            from demucs import separate
+            from demucs.apply import apply_model
+            from demucs.pretrained import get_model
+            import torch
+
+            model = get_model("htdemucs")
+            model.to("cpu")
+            model.eval()
+
+            wav_tensor = torch.from_numpy(data).unsqueeze(0).unsqueeze(0)
+            with torch.no_grad():
+                sources = apply_model(model, wav_tensor, device="cpu", shifts=1, split=True, overlap=0.25)[0]
+
+            # Demucs stems: drums, bass, other, vocals
+            stem_names = model.sources
+            other_idx = stem_names.index("other") if "other" in stem_names else 2
+            isolated = sources[other_idx].numpy().squeeze()
+
+            peak = np.max(np.abs(isolated))
+            if peak > 0:
+                isolated = isolated / peak * 0.95
+
+            # Save isolated stem
+            isolated_path = str(out / f"tab_isolated_{uuid.uuid4().hex[:12]}.wav")
+            import scipy.io.wavfile as wav
+            wav.write(isolated_path, sr, (isolated * 32767).astype(np.int16))
+            analyze_path = isolated_path
+            logger.info(f"Guitar tab: isolated 'other' stem saved to {isolated_path}")
+        except Exception as e:
+            logger.warning(f"Demucs separation failed, using raw audio: {e}")
+
+    # Step 2: Note detection
     from ..services.calibration import get_detection_params
     cal = get_detection_params(store_id)
-    notes_result = _detect_notes_fft(wav_path_str, cal)
 
-    Path(wav_path_str).unlink(missing_ok=True)
+    if analysis_method == "fft":
+        notes_result = _detect_notes_fft(analyze_path, cal)
+    elif analysis_method == "polyphonic":
+        notes_result = _detect_notes_polyphonic(analyze_path)
+    elif analysis_method == "cqt":
+        notes_result = _detect_notes_cqt(analyze_path)
+    elif analysis_method == "ml":
+        notes_result = _detect_notes_ml(analyze_path)
+    else:
+        notes_result = _detect_notes_advanced(analyze_path)
 
-    tab_notes = []
-    for n in notes_result["notes"]:
+    # Cleanup temp files
+    if analyze_path != wav_path_str and analyze_path != str(tmp):
+        Path(analyze_path).unlink(missing_ok=True)
+    if wav_path_str != str(tmp) and Path(wav_path_str).exists():
+        Path(wav_path_str).unlink(missing_ok=True)
+
+    # Step 3: MIDI to tab using Tayuya or fallback
+    tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
+    try:
+        from ..services.guitar_tab import midi_to_tab_tayuya
+        tayuya_input = [{"pitch": n["pitch"], "note_name": n["note_name"], "start_time": n["start_time"]} for n in notes_result["notes"]]
+        positions = midi_to_tab_tayuya(tayuya_input, tuning_key)
+    except Exception as e:
+        logger.warning(f"Tayuya import failed, using fallback mapper: {e}")
+        positions = [_midi_to_tab(n["pitch"], tuning_key)[0] if _midi_to_tab(n["pitch"], tuning_key) else (0, 0) for n in notes_result["notes"]]
+
+    for i, n in enumerate(notes_result["notes"]):
         midi = n["pitch"]
-        candidates = _midi_to_tab(midi, tuning_key)
-        if not candidates:
+        best_s, best_f = positions[i] if i < len(positions) else (0, 0)
+        if best_f == 0 and best_s == 0 and not n.get("note_name"):
             continue
-        best_s, best_f = candidates[0]
-        tuning = GUITAR_TUNINGS.get(tuning_key, GUITAR_TUNINGS[DEFAULT_TUNING])
         tab_notes.append(TabNote(
             start_time=n["start_time"],
             end_time=n["end_time"],
@@ -1501,7 +2004,194 @@ def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: st
         "notes": tab_notes,
         "duration_secs": round(notes_result["duration_secs"], 2),
         "note_count": len(tab_notes),
+        "method": notes_result.get("method", analysis_method),
     }
+
+
+# ── Guitar Pro Import / Export ────────────────────────────
+
+
+class GPImportResponse(BaseModel):
+    ok: bool = True
+    notes: list[TabNote] = []
+    note_count: int = 0
+    title: str = ""
+    artist: str = ""
+    track_name: str = ""
+
+
+class GPExportRequest(BaseModel):
+    notes: list[dict]
+    tuning_key: str = DEFAULT_TUNING
+    title: str = "Generated Tab"
+    tempo: int = 120
+
+
+class TabSearchRequest(BaseModel):
+    artist: str = ""
+    title: str = ""
+    source: str = "songsterr"
+
+
+class TabSearchResult(BaseModel):
+    ok: bool = True
+    results: list[dict] = []
+    source: str = ""
+
+
+@router.post("/import-gp", response_model=GPImportResponse)
+async def import_gp(
+    file: UploadFile = File(...),
+):
+    """Parse a Guitar Pro file (.gp3/.gp4/.gp5/.gpx) and return notes."""
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    ext = Path(file.filename).suffix if file.filename else ".gp5"
+    tmp_path = output_dir / f"gp_import_{uuid.uuid4().hex[:12]}{ext}"
+    tmp_path.write_bytes(content)
+
+    result = await _run_blocking(_do_import_gp, str(tmp_path))
+
+    tmp_path.unlink(missing_ok=True)
+    return GPImportResponse(**result)
+
+
+@router.post("/export-gp")
+async def export_gp(body: GPExportRequest):
+    """Export notes to a Guitar Pro 5 file."""
+    output_dir = Path(settings.UPLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    gp_path = output_dir / f"gp_export_{uuid.uuid4().hex[:12]}.gp5"
+
+    await _run_blocking(
+        _do_export_gp, body.notes, body.tuning_key, str(gp_path), body.title, body.tempo,
+    )
+
+    return FileResponse(
+        str(gp_path),
+        media_type="application/octet-stream",
+        filename=f"{body.title.replace(' ', '_')}.gp5",
+        background=lambda: gp_path.unlink(missing_ok=False),
+    )
+
+
+@router.post("/search-tabs", response_model=TabSearchResult)
+async def search_tabs(body: TabSearchRequest):
+    """Search for guitar tabs from public sources."""
+    result = await _run_blocking(
+        _do_search_tabs, body.artist, body.title, body.source,
+    )
+    return TabSearchResult(ok=True, results=result, source=body.source)
+
+
+def _do_import_gp(tmp_path: str) -> dict:
+    from ..services.guitar_tab import parse_gp_file
+
+    notes_raw = parse_gp_file(tmp_path)
+    tab_notes = []
+    for n in notes_raw:
+        tab_notes.append(TabNote(
+            start_time=n["start_time"],
+            end_time=n["end_time"],
+            pitch=n["pitch"],
+            note_name=n["note_name"],
+            string=n["string"],
+            string_name="",
+            fret=n["fret"],
+            velocity=n["velocity"],
+        ))
+
+    return {
+        "ok": True,
+        "notes": tab_notes,
+        "note_count": len(tab_notes),
+        "title": "",
+        "artist": "",
+        "track_name": "",
+    }
+
+
+def _do_export_gp(notes: list[dict], tuning_key: str, output_path: str, title: str, tempo: int) -> str:
+    from ..services.guitar_tab import export_gp_file
+    return export_gp_file(notes, tuning_key, output_path, tempo=float(tempo))
+
+
+def _do_search_tabs(artist: str, title: str, source: str) -> list[dict]:
+    """Search tabs from public sources with multi-endpoint fallback."""
+    try:
+        import requests
+    except ImportError:
+        return []
+
+    query = f"{artist} {title}".strip()
+    if not query:
+        return []
+
+    headers = {"User-Agent": "MusicAIStudio/1.0"}
+
+    if source == "songsterr":
+        # Try primary pattern search endpoint
+        results = _songsterr_pattern_search(query, headers)
+        if not results:
+            # Fallback: best match endpoint
+            results = _songsterr_best_match(query, headers)
+        return results
+
+    return []
+
+
+def _songsterr_pattern_search(query: str, headers: dict) -> list[dict]:
+    """Search Songsterr via pattern endpoint: returns structured track IDs + URLs."""
+    try:
+        import requests
+        url = f"https://www.songsterr.com/a/ra/songs.json?pattern={requests.utils.quote(query)}"
+        resp = requests.get(url, timeout=10, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        results = []
+        for item in data[:15]:
+            artist_id = item.get("artist", {}).get("id", "")
+            song_id = item.get("id", "")
+            results.append({
+                "id": str(song_id),
+                "title": item.get("title", ""),
+                "artist": item.get("artist", {}).get("name", ""),
+                "source": "songsterr",
+                "url": f"https://www.songsterr.com/a/wa/song?id={song_id}",
+                "has_tab": item.get("hasTracks", False),
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"Songsterr pattern search failed: {e}")
+        return []
+
+
+def _songsterr_best_match(query: str, headers: dict) -> list[dict]:
+    """Fallback: Songsterr best match endpoint with single result."""
+    try:
+        import requests
+        encoded = requests.utils.quote(query)
+        url = f"https://www.songsterr.com/a/wa/bestMatchForQueryString?s={encoded}&a=&track="
+        resp = requests.get(url, timeout=10, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        if data and isinstance(data, dict):
+            song_id = data.get("id", "")
+            return [{
+                "id": str(song_id),
+                "title": data.get("title", ""),
+                "artist": data.get("artist", {}).get("name", ""),
+                "source": "songsterr",
+                "url": f"https://www.songsterr.com/a/wa/song?id={song_id}",
+                "has_tab": data.get("hasTracks", False),
+            }]
+        return []
+    except Exception as e:
+        logger.debug(f"Songsterr best match failed: {e}")
+        return []
 
 
 # ── Learning / Calibration System ─────────────────────────────
@@ -1680,12 +2370,16 @@ class VoiceCleanResponse(BaseModel):
     filename: str = ""
     duration: float = 0.0
     noise_frames: int = 0
+    method: str = ""
+    reduction_db: int = 0
 
 
 @router.post("/voice-clean", response_model=VoiceCleanResponse)
 async def voice_clean(
     file: UploadFile = File(...),
     noise_reduction: float = Form(default=0.7, ge=0.0, le=1.0),
+    method: str = Form(default="noisereduce"),
+    stationary: bool = Form(default=True),
 ):
     try:
         upload_dir = Path(settings.UPLOAD_DIR)
@@ -1696,7 +2390,10 @@ async def voice_clean(
         upload_path.write_bytes(content)
 
         from ..services.cleaner import clean_voice
-        result = await _run_blocking(clean_voice, str(upload_path), noise_reduction)
+        result = await _run_blocking(
+            clean_voice, str(upload_path), noise_reduction,
+            method=method, stationary=stationary,
+        )
 
         filename = Path(result["cleaned_path"]).name
         return VoiceCleanResponse(
@@ -1704,7 +2401,9 @@ async def voice_clean(
             url=f"/api/audio/edits/{filename}",
             filename=filename,
             duration=result["duration"],
-            noise_frames=result["noise_profile_frames"],
+            noise_frames=result.get("noise_profile_frames", 0),
+            method=result.get("method", ""),
+            reduction_db=result.get("reduction_db", 0),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1804,12 +2503,16 @@ class DereverbResponse(BaseModel):
     filename: str = ""
     duration: float = 0.0
     strength: float = 0.7
+    method: str = ""
+    hp_cutoff_hz: float = 0
+    detected_f0_hz: float = 0
 
 
 @router.post("/dereverb", response_model=DereverbResponse)
 async def dereverb(
     file: UploadFile = File(...),
     strength: float = Form(default=0.7, ge=0.0, le=1.0),
+    method: str = Form(default="wpe"),
 ):
     try:
         upload_dir = Path(settings.UPLOAD_DIR)
@@ -1820,7 +2523,7 @@ async def dereverb(
         upload_path.write_bytes(content)
 
         from ..services.dereverb import remove_reverb
-        result = await _run_blocking(remove_reverb, str(upload_path), strength)
+        result = await _run_blocking(remove_reverb, str(upload_path), strength, method=method)
 
         filename = Path(result["cleaned_path"]).name
         return DereverbResponse(
@@ -1829,6 +2532,9 @@ async def dereverb(
             filename=filename,
             duration=result["duration"],
             strength=result["strength"],
+            method=result.get("method", ""),
+            hp_cutoff_hz=result.get("hp_cutoff_hz", 0),
+            detected_f0_hz=result.get("detected_f0_hz", 0),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -31,6 +31,7 @@ export default function DereverbPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [strength, setStrength] = useState(0.7);
+  const [dereverbMethod, setDereverbMethod] = useState<"wpe" | "deepfilternet" | "envelope">("wpe");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<DereverbResult | null>(null);
@@ -77,7 +78,7 @@ export default function DereverbPage() {
     setError("");
     setResult(null);
     try {
-      const data = await api.tools.dereverb(file, strength);
+      const data = await api.tools.dereverb(file, strength, dereverbMethod);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -182,6 +183,39 @@ export default function DereverbPage() {
           </p>
         </div>
 
+        {/* Method selector */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5">Dereverb Method</label>
+          <div className="flex gap-1">
+            {([
+              { value: "wpe", label: "WPE", desc: "Blind dereverb, preserves speech" },
+              { value: "deepfilternet", label: "DeepFilterNet", desc: "Neural enhancement" },
+              { value: "envelope", label: "Envelope", desc: "Legacy RMS masking" },
+            ] as const).map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setDereverbMethod(m.value)}
+                title={m.desc}
+                className={cn(
+                  "flex-1 px-2 py-2 rounded-md text-xs font-medium transition-all border text-center",
+                  dereverbMethod === m.value
+                    ? "bg-sky-500/10 text-sky-400 border-sky-500/30"
+                    : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border"
+                )}
+              >
+                <div>{m.label}</div>
+              </button>
+            ))}
+          </div>
+          <p className="text-[9px] text-daw-text-dim mt-1">
+            {dereverbMethod === "wpe"
+              ? "Models room reflections mathematically, subtracts late reverb without gating artifacts."
+              : dereverbMethod === "deepfilternet"
+                ? "AI-powered speech enhancement. Handles dereverb + denoise in one pass."
+                : "Classic RMS envelope tracking. Fast but may sound gated at high strength."}
+          </p>
+        </div>
+
         <Button
           size="lg"
           className="w-full"
@@ -230,6 +264,10 @@ export default function DereverbPage() {
                 <div className="flex items-center gap-3 mt-0.5 text-[10px] text-daw-text-dim">
                   <span>{formatSecs(result.duration)}</span>
                   <span>Strength: {(result.strength * 100).toFixed(0)}%</span>
+                  {result.method && <span className="text-sky-400">{result.method}</span>}
+                  {result.detected_f0_hz > 0 && (
+                    <span>Voice F0: {result.detected_f0_hz}Hz · HP: {result.hp_cutoff_hz}Hz</span>
+                  )}
                 </div>
               </div>
             </div>

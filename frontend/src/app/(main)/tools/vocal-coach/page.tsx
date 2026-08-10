@@ -23,6 +23,24 @@ import { StemMixer, type StemMixerHandle } from "@/components/studio/StemMixer";
 
 const NOTE_NAMES_SHORT = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
+function ScorePillar({ label, score, detail, color }: { label: string; score: number; detail: string; color: string }) {
+  return (
+    <div className="p-2.5 rounded-lg bg-daw-surface-2/60 border border-daw-border">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] font-medium text-daw-text-dim">{label}</span>
+        <span className="text-[11px] font-bold tabular-nums" style={{ color }}>{score}</span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-daw-surface-3 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${score}%`, backgroundColor: color }}
+        />
+      </div>
+      <p className="text-[9px] text-daw-text-dim mt-1 leading-tight">{detail}</p>
+    </div>
+  );
+}
+
 interface PitchPoint { time: number; midi: number; }
 
 interface VocalScoreResult {
@@ -32,6 +50,10 @@ interface VocalScoreResult {
   user_pitch: PitchPoint[];
   total_frames: number;
   matched_frames: number;
+  pitch_accuracy?: { cents_mad: number; cents_std: number; score: number; in_tune_pct: number } | null;
+  stability?: { f0_variance_cents: number; vibrato_rate_hz: number; score: number } | null;
+  timing?: { dtw_cost: number; duration_ratio: number; score: number } | null;
+  dynamics?: { rms_correlation: number; dynamic_range_match: number; score: number } | null;
 }
 
 export default function VocalCoachPage() {
@@ -560,6 +582,43 @@ export default function VocalCoachPage() {
                   <p className="text-xs text-daw-text-dim">{vocalScore.matched_frames}/{vocalScore.total_frames} frames in pitch</p>
                 </div>
               </div>
+
+              {/* Multi-dimensional breakdown */}
+              {vocalScore.pitch_accuracy && (
+                <div className="grid grid-cols-2 gap-2">
+                  <ScorePillar
+                    label="Pitch Accuracy"
+                    score={vocalScore.pitch_accuracy.score}
+                    detail={`${vocalScore.pitch_accuracy.cents_mad} cents MAD · ${vocalScore.pitch_accuracy.in_tune_pct}% in tune (<25\u00A2)`}
+                    color="#a78bfa"
+                  />
+                  <ScorePillar
+                    label="Stability"
+                    score={vocalScore.stability?.score ?? 0}
+                    detail={vocalScore.stability
+                      ? `${vocalScore.stability.f0_variance_cents} cents\u00B2 var${vocalScore.stability.vibrato_rate_hz > 0 ? ` · vibrato ${vocalScore.stability.vibrato_rate_hz} Hz` : ""}`
+                      : "N/A"}
+                    color="#22d3ee"
+                  />
+                  <ScorePillar
+                    label="Timing"
+                    score={vocalScore.timing?.score ?? 0}
+                    detail={vocalScore.timing
+                      ? `DTW ${vocalScore.timing.dtw_cost.toFixed(2)} · dur ${vocalScore.timing.duration_ratio.toFixed(2)}x`
+                      : "N/A"}
+                    color="#f59e0b"
+                  />
+                  <ScorePillar
+                    label="Dynamics"
+                    score={vocalScore.dynamics?.score ?? 0}
+                    detail={vocalScore.dynamics
+                      ? `corr ${vocalScore.dynamics.rms_correlation.toFixed(2)} · range ${vocalScore.dynamics.dynamic_range_match.toFixed(2)}`
+                      : "N/A"}
+                    color="#34d399"
+                  />
+                </div>
+              )}
+
               <div className="rounded-lg border border-daw-border overflow-hidden">
                 <PitchGraph refPitch={vocalScore.ref_pitch} userPitch={vocalScore.user_pitch} width={568} height={200} />
               </div>

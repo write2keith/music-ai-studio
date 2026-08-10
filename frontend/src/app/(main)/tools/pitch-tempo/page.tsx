@@ -51,6 +51,8 @@ export default function PitchTempoPage() {
   const [exportError, setExportError] = useState("");
   const [exportUrl, setExportUrl] = useState("");
   const [exportFilename, setExportFilename] = useState("");
+  const [formantPreserved, setFormantPreserved] = useState(true);
+  const [transientPreservation, setTransientPreservation] = useState(0);
 
   // ── Engine init / cleanup ────────────────────────────────────
 
@@ -244,14 +246,14 @@ export default function PitchTempoPage() {
     setExportUrl("");
 
     try {
-      const result = await api.tools.pitchTempo(file, pitchSemitones, tempoFactor);
+      const result = await api.tools.pitchTempo(file, pitchSemitones, tempoFactor, formantPreserved, transientPreservation);
       setExportUrl(result.url);
       setExportFilename(result.filename);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Export failed");
     }
     setIsExporting(false);
-  }, [file, pitchSemitones, tempoFactor]);
+  }, [file, pitchSemitones, tempoFactor, formantPreserved, transientPreservation]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────
 
@@ -562,6 +564,101 @@ export default function PitchTempoPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ── Quality Controls ─────────────────────────── */}
+              <div className="p-4 rounded-xl bg-daw-surface-2/60 border border-daw-border space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-daw-text-muted uppercase tracking-wider">
+                      Quality Settings
+                    </span>
+                    <p className="text-[10px] text-daw-text-dim mt-0.5">
+                      Controls how the audio is processed on export
+                    </p>
+                  </div>
+                  {formantPreserved && (
+                    <span className="text-[10px] text-daw-green font-medium bg-daw-green/10 px-2 py-0.5 rounded">
+                      phase vocoder
+                    </span>
+                  )}
+                </div>
+
+                {/* Formant Preservation Toggle */}
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <span className="text-xs text-daw-text">Formant-preserved pitch shift</span>
+                    <p className="text-[10px] text-daw-text-dim">
+                      Keeps vocal timbre natural. Disable for classic chipmunk/monster effect.
+                    </p>
+                  </div>
+                  <div className="relative inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formantPreserved}
+                      onChange={(e) => setFormantPreserved(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className={cn(
+                      "w-9 h-5 rounded-full transition-colors",
+                      formantPreserved ? "bg-daw-green" : "bg-daw-surface-3"
+                    )} />
+                    <div className={cn(
+                      "absolute w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform",
+                      formantPreserved ? "translate-x-5" : "translate-x-0.5"
+                    )} />
+                  </div>
+                </label>
+
+                {/* Transient Preservation Slider */}
+                <AnimatePresence>
+                  {formantPreserved && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between pt-2 border-t border-daw-border">
+                        <div>
+                          <span className="text-xs text-daw-text">Transient preservation</span>
+                          <p className="text-[10px] text-daw-text-dim">
+                            {transientPreservation === 0
+                              ? "Normal — balanced quality for most audio"
+                              : transientPreservation === 1
+                                ? "Crisp — sharper drum hits and pick attacks"
+                                : "Very crisp — maximum transient detail for extreme stretches"}
+                          </p>
+                        </div>
+                        <span className="text-sm font-bold font-daw-mono tabular-nums text-daw-accent min-w-[3ch] text-right">
+                          {transientPreservation}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={2}
+                        step={1}
+                        value={transientPreservation}
+                        onChange={(e) => setTransientPreservation(Number(e.target.value))}
+                        className={cn(
+                          "w-full h-2 rounded-full appearance-none cursor-pointer bg-daw-surface-3 mt-2",
+                          "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4",
+                          "[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-daw-accent",
+                          "[&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110",
+                          "accent-daw-accent"
+                        )}
+                      />
+                      <div className="flex justify-between mt-1 px-0.5">
+                        {["Normal", "Crisp", "Very crisp"].map((label, i) => (
+                          <span key={i} className="text-[9px] text-daw-text-dim">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* ── Export section ───────────────────────────── */}

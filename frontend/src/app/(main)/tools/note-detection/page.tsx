@@ -119,11 +119,11 @@ export default function NoteDetectionPage() {
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
           Analyze an instrument stem to detect MIDI notes with timing.
-          FFT for single-note lines, Polyphonic for chords. Supports WAV, MP3, M4A, FLAC, OGG.
+          FFT for single-note, Polyphonic for chords, CQT for musical scale accuracy, ML for dense polyphony.
         </p>
 
         <div className="flex gap-1 mt-3 p-0.5 rounded-lg bg-daw-surface-2 w-fit">
-          {(["fft", "polyphonic"] as const).map((m) => (
+          {(["fft", "polyphonic", "cqt", "ml"] as const).map((m) => (
             <button
               key={m}
               onClick={() => {
@@ -138,7 +138,7 @@ export default function NoteDetectionPage() {
                   : "text-daw-text-muted hover:text-daw-text"
               )}
             >
-              {m === "fft" ? "Mono (FFT)" : "Polyphonic"}
+              {m === "fft" ? "Mono (FFT)" : m === "polyphonic" ? "Poly" : m === "cqt" ? "CQT" : "ML"}
             </button>
           ))}
         </div>

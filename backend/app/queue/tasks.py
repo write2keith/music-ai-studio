@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 from pathlib import Path
 from threading import Thread
 from .worker import queue
@@ -36,7 +37,7 @@ def _run_separate(params: dict) -> dict:
 
 
 def _run_vocal_prep(params: dict) -> dict:
-    from ..routers.tools import _extract_pitch_contour
+    from ..services.vocal_coach import extract_pitch_pyin
     result = separate_stems(
         audio_path=params["audio_path"],
         model_name=params.get("model", "htdemucs"),
@@ -44,7 +45,14 @@ def _run_vocal_prep(params: dict) -> dict:
     vocals_path = result["stems"].get("vocals")
     if not vocals_path:
         raise RuntimeError("No vocals stem produced")
-    pitch_contour = _extract_pitch_contour(vocals_path)
+
+    pyin_result = extract_pitch_pyin(vocals_path)
+    pitch_contour = [
+        {"time": round(float(pyin_result["times"][i]), 3),
+         "midi": int(round(69.0 + 12.0 * np.log2(float(pyin_result["f0"][i]) / 440.0)))
+         if pyin_result["voiced_flag"][i] and not np.isnan(pyin_result["f0"][i]) else -1}
+        for i in range(0, len(pyin_result["f0"]), 4)
+    ]
 
     backing_paths = {k: v for k, v in result["stems"].items() if k != "vocals"}
     return {
@@ -108,6 +116,7 @@ def _run_lyric_transcribe(params: dict) -> dict:
 
     audio_path = params["audio_path"]
     lang = params.get("language", "auto")
+    isolate_vocals = params.get("isolate_vocals", False)
 
-    logger.info(f"Lyric transcribe: {audio_path}, language={lang}")
-    return transcribe_lyrics(str(audio_path), language=lang)
+    logger.info(f"Lyric transcribe: {audio_path}, language={lang}, isolate_vocals={isolate_vocals}")
+    return transcribe_lyrics(str(audio_path), language=lang, isolate_vocals=isolate_vocals)

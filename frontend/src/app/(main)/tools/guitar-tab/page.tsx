@@ -3,12 +3,12 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, Loader2, AlertCircle, Music, FileAudio, Play, Pause, Square, SkipForward, SkipBack, ListMusic } from "lucide-react";
+import { Download, Loader2, AlertCircle, Music, FileAudio, Play, Pause, Square, SkipForward, SkipBack, ListMusic, Upload, Search, FileDown, FileInput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import type { GuitarTabResult, TabNote, CalibrationResponse } from "@/lib/api";
+import type { GuitarTabResult, TabNote, CalibrationResponse, GPImportResult, TabSearchResult } from "@/lib/api";
 import TabRenderer from "@/components/TabRenderer";
 import { FretboardView } from "@/components/studio/FretboardView";
 import { PianoView } from "@/components/studio/PianoView";
@@ -112,9 +112,21 @@ export default function GuitarTabPage() {
   const [tabFile, setTabFile] = useState<File | null>(null);
   const [tabFileUrl, setTabFileUrl] = useState<string>("");
   const [tabTuning, setTabTuning] = useState("standard");
+  const [separateFirst, setSeparateFirst] = useState(false);
+  const [analysisMethod, setAnalysisMethod] = useState<string>("advanced");
   const [tabGenerating, setTabGenerating] = useState(false);
   const [tabError, setTabError] = useState("");
   const [tabResult, setTabResult] = useState<GuitarTabResult | null>(null);
+
+  // GP import/export
+  const [importingGP, setImportingGP] = useState(false);
+  const [exportingGP, setExportingGP] = useState(false);
+
+  // Tab search
+  const [tabSearchArtist, setTabSearchArtist] = useState("");
+  const [tabSearchTitle, setTabSearchTitle] = useState("");
+  const [tabSearching, setTabSearching] = useState(false);
+  const [tabSearchResults, setTabSearchResults] = useState<TabSearchResult | null>(null);
 
   // Correction mode
   const [correctionMode, setCorrectionMode] = useState(false);
@@ -355,12 +367,62 @@ export default function GuitarTabPage() {
     setAudioBuffer(null);
     stopPlayback();
     try {
-      const data = await api.tools.guitarTab(tabFile, tabTuning);
+      const data = await api.tools.guitarTab(tabFile, tabTuning, separateFirst, analysisMethod);
       setTabResult(data);
     } catch (err) {
       setTabError(err instanceof Error ? err.message : String(err));
     }
     setTabGenerating(false);
+  }
+
+  async function handleImportGP(file: File) {
+    setImportingGP(true);
+    setTabError("");
+    try {
+      const data = await api.tools.importGuitarPro(file);
+      const tabResult: GuitarTabResult = {
+        ok: true,
+        notes: data.notes,
+        duration_secs: 0,
+        note_count: data.note_count,
+        tuning: ["E", "A", "D", "G", "B", "e"],
+        tuning_key: "standard",
+        method: "gp-import",
+      };
+      setTabResult(tabResult);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    }
+    setImportingGP(false);
+  }
+
+  async function handleExportGP() {
+    if (!tabResult || tabResult.notes.length === 0) return;
+    setExportingGP(true);
+    try {
+      const blob = await api.tools.exportGuitarPro(tabResult.notes, tabTuning, "generated-tab");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "generated-tab.gp5";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    }
+    setExportingGP(false);
+  }
+
+  async function handleSearchTabs() {
+    if (!tabSearchArtist.trim() && !tabSearchTitle.trim()) return;
+    setTabSearching(true);
+    try {
+      const data = await api.tools.searchTabs(tabSearchArtist, tabSearchTitle);
+      setTabSearchResults(data);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    }
+    setTabSearching(false);
   }
 
   async function submitNoteCorrection(tool: string, originalNote: TabNote, correctedName: string) {
@@ -482,6 +544,44 @@ export default function GuitarTabPage() {
           </select>
         </div>
 
+        {/* Analysis method */}
+        <div>
+          <label className="block text-xs font-medium text-daw-text-dim mb-1.5">Analysis Method</label>
+          <div className="flex gap-1 bg-daw-surface-3 rounded-lg p-0.5">
+            {([
+              ["advanced", "Advanced"],
+              ["cqt", "CQT"],
+              ["polyphonic", "Poly"],
+              ["fft", "FFT"],
+              ["ml", "ML"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setAnalysisMethod(val)}
+                className={cn(
+                  "flex-1 text-xs py-1.5 rounded-md transition-colors",
+                  analysisMethod === val
+                    ? "bg-orange-500/20 text-orange-400"
+                    : "text-daw-text-dim hover:text-daw-text"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Demucs separation */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={separateFirst}
+            onChange={(e) => setSeparateFirst(e.target.checked)}
+            className="rounded bg-daw-surface-3 border-daw-border text-violet-500 focus:ring-violet-500/20"
+          />
+          <span className="text-xs text-daw-text-dim">Separate instruments first (Demucs)</span>
+        </label>
+
         <Button
           size="lg"
           className="w-full"
@@ -500,6 +600,109 @@ export default function GuitarTabPage() {
             </>
           )}
         </Button>
+
+        {/* GP import/export row */}
+        <div className="flex gap-2">
+          <label className="flex-1">
+            <input
+              type="file"
+              accept=".gp3,.gp4,.gp5,.gpx"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportGP(f);
+              }}
+            />
+            <div
+              onClick={(e) => (e.currentTarget.previousElementSibling as HTMLInputElement)?.click()}
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2 rounded-lg border border-daw-border text-xs text-daw-text-dim cursor-pointer hover:bg-daw-surface-2 transition-colors",
+                importingGP && "pointer-events-none opacity-50"
+              )}
+            >
+              {importingGP ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" />
+              ) : (
+                <FileInput className="w-3.5 h-3.5" />
+              )}
+              {importingGP ? "Importing..." : "Import .gp5"}
+            </div>
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1 gap-1.5 text-xs"
+            onClick={handleExportGP}
+            disabled={exportingGP || !tabResult || tabResult.notes.length === 0}
+          >
+            {exportingGP ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
+            {exportingGP ? "Exporting..." : "Export .gp5"}
+          </Button>
+        </div>
+
+        {/* Tab search section */}
+        <details className="group">
+          <summary className="flex items-center gap-1.5 text-xs text-daw-text-dim cursor-pointer hover:text-daw-text transition-colors py-1">
+            <Search className="w-3.5 h-3.5" />
+            Search online tabs
+          </summary>
+          <div className="pt-3 space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Artist..."
+                value={tabSearchArtist}
+                onChange={(e) => setTabSearchArtist(e.target.value)}
+                className="flex-1 bg-daw-surface-3 border border-daw-border rounded-lg px-2.5 py-1.5 text-xs text-daw-text outline-none focus:border-orange-400/50"
+              />
+              <input
+                type="text"
+                placeholder="Song title..."
+                value={tabSearchTitle}
+                onChange={(e) => setTabSearchTitle(e.target.value)}
+                className="flex-1 bg-daw-surface-3 border border-daw-border rounded-lg px-2.5 py-1.5 text-xs text-daw-text outline-none focus:border-orange-400/50"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1 text-xs px-3"
+                onClick={handleSearchTabs}
+                disabled={tabSearching || (!tabSearchArtist.trim() && !tabSearchTitle.trim())}
+              >
+                {tabSearching ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              </Button>
+            </div>
+
+            {tabSearchResults && tabSearchResults.results.length > 0 && (
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {tabSearchResults.results.map((r, i) => (
+                  <a
+                    key={i}
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between p-2 rounded-lg bg-daw-surface-3 hover:bg-daw-surface-2 transition-colors text-xs"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-daw-text truncate">{r.title}</div>
+                      <div className="text-daw-text-dim truncate">{r.artist}</div>
+                    </div>
+                    <Badge variant="secondary" className="text-[9px] ml-2 shrink-0">
+                      {r.source}
+                    </Badge>
+                  </a>
+                ))}
+              </div>
+            )}
+            {tabSearchResults && tabSearchResults.results.length === 0 && (
+              <p className="text-xs text-daw-text-dim text-center py-2">No results found</p>
+            )}
+          </div>
+        </details>
 
         {tabError && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
@@ -534,6 +737,11 @@ export default function GuitarTabPage() {
                   <span className="text-xs text-daw-text-dim">
                     {formatTime(tabResult.duration_secs)} &middot; {tabResult.tuning.join("")}
                   </span>
+                  {tabResult.method && (
+                    <Badge variant="secondary" className="text-[10px] bg-violet-500/10 text-violet-400">
+                      {tabResult.method}
+                    </Badge>
+                  )}
                   {calibration && calibration.total_corrections > 0 && (
                     <span className="text-[10px] text-daw-green">
                       accuracy {Math.round(calibration.accuracy * 100)}%

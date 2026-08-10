@@ -37,6 +37,7 @@ export default function LyricsPage() {
   const [editingLine, setEditingLine] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [editedLines, setEditedLines] = useState<Record<number, string>>({});
+  const [isolateVocals, setIsolateVocals] = useState(false);
   const rafRef = useRef<number>(0);
   const linesContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -124,7 +125,7 @@ export default function LyricsPage() {
     setLyricError("");
     setLyricResult(null);
     try {
-      const data = await api.tools.lyricTranscribe(lyricFile);
+      const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals);
       setLyricJobId(data.job_id);
       setLyricPolling(true);
       pollLyrics(data.job_id);
@@ -282,6 +283,19 @@ export default function LyricsPage() {
         {lyricAudioUrl && (
           <audio ref={audioRef} src={lyricAudioUrl} className="hidden" />
         )}
+
+        {/* Option: Demucs vocal isolation */}
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isolateVocals}
+            onChange={(e) => setIsolateVocals(e.target.checked)}
+            className="w-4 h-4 rounded border-daw-border bg-daw-surface-2 accent-emerald-500"
+          />
+          <span className="text-xs text-daw-text-muted">
+            Isolate vocals first (Demucs) -- best for songs with heavy instrumental backing
+          </span>
+        </label>
 
         <Button
           size="lg"
