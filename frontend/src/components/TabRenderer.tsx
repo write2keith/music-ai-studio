@@ -200,11 +200,11 @@ export default function TabRenderer({
       const { systems, beatDuration, totalMeasures, bpm } = layout;
       const staffTop = TOP_MARGIN;
 
-      ctx.fillStyle = "#111118";
+      ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, width, height);
 
       // BPM + time sig badge
-      ctx.fillStyle = "#374151";
+      ctx.fillStyle = "#999999";
       ctx.font = "9px monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
@@ -218,7 +218,7 @@ export default function TabRenderer({
           const mx = LEFT_MARGIN + mi * MEASURE_SPACING;
 
           // Measure background
-          ctx.fillStyle = mi % 2 === 0 ? "rgba(24, 24, 37, 0.5)" : "rgba(20, 20, 33, 0.3)";
+          ctx.fillStyle = mi % 2 === 0 ? "#fafafa" : "#f0f0f0";
           ctx.fillRect(mx, sysY + staffTop - 2, MEASURE_INTERIOR, STAFF_HEIGHT + 4);
 
           // String lines
@@ -226,9 +226,9 @@ export default function TabRenderer({
             const sy = sysY + staffTop + s * STRING_SPACING;
             ctx.strokeStyle =
               s === 0 || s === STRING_COUNT - 1
-                ? "rgba(168, 85, 247, 0.28)"
-                : "rgba(107, 114, 128, 0.12)";
-            ctx.lineWidth = s === 0 || s === STRING_COUNT - 1 ? 1 : 0.5;
+                ? "#555555"
+                : "#cccccc";
+            ctx.lineWidth = s === 0 || s === STRING_COUNT - 1 ? 1.2 : 0.5;
             ctx.beginPath();
             ctx.moveTo(mx, sy);
             ctx.lineTo(mx + MEASURE_INTERIOR, sy);
@@ -239,7 +239,7 @@ export default function TabRenderer({
           for (let beat = 0; beat < BEATS_PER_MEASURE; beat++) {
             const beatX = mx + (beat / BEATS_PER_MEASURE) * MEASURE_INTERIOR;
 
-            ctx.strokeStyle = "rgba(34, 211, 238, 0.06)";
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.04)";
             ctx.lineWidth = 0.3;
             for (let sub = 1; sub < SUBDIVISIONS_PER_BEAT; sub++) {
               const sx = beatX + (sub / SUBDIVISIONS_PER_BEAT) * (MEASURE_INTERIOR / BEATS_PER_MEASURE);
@@ -251,7 +251,7 @@ export default function TabRenderer({
 
             // Beat line (slightly stronger)
             if (beat > 0) {
-              ctx.strokeStyle = "rgba(107, 114, 128, 0.14)";
+              ctx.strokeStyle = "rgba(0, 0, 0, 0.10)";
               ctx.lineWidth = 0.5;
               ctx.setLineDash([2, 5]);
               ctx.beginPath();
@@ -270,8 +270,8 @@ export default function TabRenderer({
           const endMx = mx + MEASURE_INTERIOR;
 
           // Left bar line
-          ctx.strokeStyle = "rgba(156, 163, 175, 0.45)";
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = "#333333";
+          ctx.lineWidth = 1.2;
           ctx.beginPath();
           ctx.moveTo(mx, sysY + staffTop);
           ctx.lineTo(mx, sysY + staffTop + STAFF_HEIGHT);
@@ -279,9 +279,7 @@ export default function TabRenderer({
 
           // Right bar line
           ctx.strokeStyle =
-            mi === sys.measures.length - 1
-              ? "rgba(156, 163, 175, 0.55)"
-              : "rgba(156, 163, 175, 0.25)";
+            mi === sys.measures.length - 1 ? "#333333" : "#aaaaaa";
           ctx.lineWidth = mi === sys.measures.length - 1 ? 1.5 : 0.5;
           ctx.beginPath();
           ctx.moveTo(endMx, sysY + staffTop);
@@ -289,7 +287,7 @@ export default function TabRenderer({
           ctx.stroke();
 
           // Measure number
-          ctx.fillStyle = "#4b5563";
+          ctx.fillStyle = "#999999";
           ctx.font = "8px monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
@@ -297,7 +295,7 @@ export default function TabRenderer({
         }
 
         // Tuning labels
-        ctx.fillStyle = "#6b7280";
+        ctx.fillStyle = "#444444";
         ctx.font = "bold 10px 'SF Mono', 'Fira Code', monospace";
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
@@ -338,7 +336,7 @@ export default function TabRenderer({
               const sy = sysY + staffTop + s * STRING_SPACING;
 
               if (durPx > 8) {
-                ctx.fillStyle = "rgba(251, 146, 60, 0.1)";
+                ctx.fillStyle = "rgba(0, 0, 0, 0.04)";
                 ctx.fillRect(nx - 2, sy - 8, durPx, 16);
               }
             }
@@ -353,20 +351,20 @@ export default function TabRenderer({
               const isOpen = fret === 0;
 
               if (isOpen) {
-                ctx.strokeStyle = "#fb923c";
+                ctx.strokeStyle = "#333333";
                 ctx.lineWidth = 1.2;
                 ctx.beginPath();
                 ctx.ellipse(nx, sy, 6, 5, 0, 0, Math.PI * 2);
                 ctx.stroke();
               } else {
                 const fretText = fret > 0 ? String(fret) : "?";
-                ctx.fillStyle = fret > 0 ? "#fb923c" : "#ef4444";
+                ctx.fillStyle = fret > 0 ? "#1a1a1a" : "#cc0000";
                 ctx.font = "bold 11px 'SF Mono', 'Fira Code', monospace";
                 ctx.fillText(fretText, nx, sy);
 
                 // Note name below
                 if (note.note_name) {
-                  ctx.fillStyle = "#4b5563";
+                  ctx.fillStyle = "#999999";
                   ctx.font = "7px 'SF Mono', monospace";
                   ctx.fillText(note.note_name, nx, sy + 10);
                 }
@@ -435,10 +433,10 @@ export default function TabRenderer({
           const py = sys.y + staffTop;
 
           ctx.save();
-          ctx.strokeStyle = "#22d3ee";
+          ctx.strokeStyle = "#e03131";
           ctx.lineWidth = 2;
-          ctx.shadowColor = "rgba(34, 211, 238, 0.7)";
-          ctx.shadowBlur = 8;
+          ctx.shadowColor = "rgba(224, 49, 49, 0.5)";
+          ctx.shadowBlur = 6;
           ctx.beginPath();
           ctx.moveTo(px, py);
           ctx.lineTo(px, Math.floor(sys.y) + staffTop + STAFF_HEIGHT);
@@ -446,7 +444,7 @@ export default function TabRenderer({
           ctx.restore();
 
           // Triangle marker at top
-          ctx.fillStyle = "#22d3ee";
+          ctx.fillStyle = "#e03131";
           ctx.beginPath();
           ctx.moveTo(px, py);
           ctx.lineTo(px - 4, Math.floor(sys.y) + TOP_MARGIN - 2);
@@ -494,7 +492,7 @@ export default function TabRenderer({
   const height = layout.systems.length * SYSTEM_HEIGHT;
 
   return (
-    <div className="rounded-lg border border-orange-400/20 overflow-hidden">
+    <div className="rounded-lg border border-gray-300 overflow-hidden bg-white">
       <div
         ref={scrollRef}
         className="overflow-auto"
@@ -504,11 +502,11 @@ export default function TabRenderer({
           <canvas ref={canvasRef} className="block" />
         </div>
       </div>
-      <div className="px-3 py-1.5 bg-[#0f0f17] border-t border-orange-400/10 flex items-center gap-4 text-[10px] text-daw-text-dim">
+      <div className="px-3 py-1.5 bg-[#fafafa] border-t border-gray-200 flex items-center gap-4 text-[10px] text-gray-500">
         <span>
           {layout.totalMeasures} measures
         </span>
-        <span className="text-violet-400">
+        <span className="text-gray-600 font-medium">
           4/4
         </span>
       </div>

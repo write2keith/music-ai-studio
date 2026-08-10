@@ -64,7 +64,7 @@ export function StaveRenderer({ notes, durationSecs }: Props) {
   return (
     <div
       id="stave-container"
-      className="overflow-x-auto rounded-lg border border-violet-400/20 bg-[#0f0f1a]"
+      className="overflow-x-auto rounded-lg border border-gray-300 bg-white"
       ref={containerRef}
     />
   );

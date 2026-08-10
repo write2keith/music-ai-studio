@@ -52,11 +52,9 @@ def _energy_vad(audio: np.ndarray, sr: int, threshold: float = 0.015, min_dur: f
 
 def transcribe_lyrics(audio_path: str, language: str = "auto") -> dict:
     """Full pipeline: VAD → Whisper → word-level timestamps → structured output."""
-    import scipy.io.wavfile as wav
+    import librosa
 
-    sr, data = wav.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
     data = data.astype(np.float32)
     if np.max(np.abs(data)) > 1e-6:
         data = data / np.max(np.abs(data))
