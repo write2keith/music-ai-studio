@@ -1985,6 +1985,7 @@ def _do_guitar_tab(tmp_path: str, output_dir: str, store_id: str, tuning_key: st
         logger.warning(f"Tayuya import failed, using fallback mapper: {e}")
         positions = [_midi_to_tab(n["pitch"], tuning_key)[0] if _midi_to_tab(n["pitch"], tuning_key) else (0, 0) for n in notes_result["notes"]]
 
+    tab_notes = []
     for i, n in enumerate(notes_result["notes"]):
         midi = n["pitch"]
         best_s, best_f = positions[i] if i < len(positions) else (0, 0)
