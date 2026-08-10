@@ -3,7 +3,7 @@ import logging
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, Query
 from pydantic import BaseModel
 
 from ..config import get_settings
@@ -291,11 +291,9 @@ def _hz_to_note(hz: float) -> tuple[int, str]:
 
 def _detect_notes_fft(audio_path: str, calibration: dict | None = None) -> dict:
     import numpy as np
-    import scipy.io.wavfile as wav
+    import librosa
 
-    sr, data = wav.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
     data = data.astype(np.float32)
     max_val = np.max(np.abs(data))
     if max_val > 0:
@@ -421,11 +419,9 @@ def _detect_notes_fft(audio_path: str, calibration: dict | None = None) -> dict:
 
 def _detect_notes_polyphonic(audio_path: str) -> dict:
     import numpy as np
-    import scipy.io.wavfile as wav
+    import librosa
 
-    sr, data = wav.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
     data = data.astype(np.float32)
     max_val = np.max(np.abs(data))
     if max_val > 0:
@@ -645,11 +641,9 @@ class VocalScoreResponse(BaseModel):
 
 def _extract_pitch_contour(audio_path: str) -> list[dict]:
     import numpy as np
-    import scipy.io.wavfile as wav
+    import librosa
 
-    sr, data = wav.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
     data = data.astype(np.float32)
     max_val = np.max(np.abs(data))
     if max_val > 0:
@@ -1045,11 +1039,9 @@ def _intervals_to_chord(notes: list[int]) -> tuple[str, str, float]:
 
 def _detect_chords_polyphonic(audio_path: str) -> dict:
     import numpy as np
-    import scipy.io.wavfile as wav
+    import librosa
 
-    sr, data = wav.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, sr = librosa.load(str(audio_path), sr=None, mono=True)
     data = data.astype(np.float32)
     max_val = np.max(np.abs(data))
     if max_val > 0:
@@ -1154,7 +1146,7 @@ def _detect_chords_polyphonic(audio_path: str) -> dict:
 
 
 @router.post("/chord-detect", response_model=ChordDetectResponse)
-async def chord_detect(file: UploadFile = File(...)):
+async def chord_detect(file: UploadFile = File(...), method: str = Query(default="harmonic")):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1163,7 +1155,7 @@ async def chord_detect(file: UploadFile = File(...)):
     tmp_path = output_dir / f"chord_{uuid.uuid4().hex[:12]}{ext}"
     tmp_path.write_bytes(content)
 
-    result = await _run_blocking(_do_chord_detect, str(tmp_path), str(output_dir))
+    result = await _run_blocking(_do_chord_detect, str(tmp_path), str(output_dir), method)
 
     Path(tmp_path).unlink(missing_ok=True)
 
@@ -1175,35 +1167,15 @@ async def chord_detect(file: UploadFile = File(...)):
     )
 
 
-def _do_chord_detect(tmp_path: str, output_dir: str):
-    tmp = Path(tmp_path)
-    out = Path(output_dir)
-    wav_path = str(tmp)
-
-    try:
-        import scipy.io.wavfile
-        scipy.io.wavfile.read(wav_path)
-    except Exception:
-        try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_file(str(tmp))
-            wav_path = str(out / f"chord_{uuid.uuid4().hex[:12]}.wav")
-            audio.export(wav_path, format="wav")
-            tmp.unlink(missing_ok=True)
-        except Exception as e:
-            for p in [tmp, Path(wav_path)]:
-                p.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail=f"Cannot read audio: {str(e)[:100]}")
-
-    result = _detect_chords_ml(wav_path)
-    Path(wav_path).unlink(missing_ok=True)
+def _do_chord_detect(tmp_path: str, output_dir: str, method: str = "harmonic"):
+    result = _detect_chords_ml(tmp_path, method)
     return result
 
 
-def _detect_chords_ml(audio_path: str) -> dict:
+def _detect_chords_ml(audio_path: str, method: str = "harmonic") -> dict:
     from ..services.chord_detection import ChordDetector
     detector = ChordDetector()
-    return detector.detect(audio_path)
+    return detector.detect(audio_path, method=method)
 
 
 # ── Pitch & Tempo Adjustment ──────────────────────────────────

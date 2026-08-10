@@ -30,6 +30,7 @@ export default function ChordDetectionPage() {
   const [chordDetecting, setChordDetecting] = useState(false);
   const [chordError, setChordError] = useState("");
   const [chordResult, setChordResult] = useState<ChordDetectResult | null>(null);
+  const [detectMethod, setDetectMethod] = useState<"harmonic" | "cnn" | "template">("harmonic");
 
   const [correctionMode, setCorrectionMode] = useState(false);
   const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
@@ -109,7 +110,7 @@ export default function ChordDetectionPage() {
     setChordError("");
     setChordResult(null);
     try {
-      const data = await api.tools.chordDetect(chordFile);
+      const data = await api.tools.chordDetect(chordFile, detectMethod);
       setChordResult(data);
       setDuration(data.duration_secs);
     } catch (err) {
@@ -188,6 +189,34 @@ export default function ChordDetectionPage() {
             </div>
           )}
         </div>
+
+        {/* Detection method selector */}
+        {chordFile && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-daw-text-dim">Detection Method</label>
+            <div className="flex gap-1">
+              {([
+                { value: "harmonic", label: "Harmonic", desc: "HPSS + CENS chroma" },
+                { value: "cnn", label: "CNN", desc: "Deep learning model" },
+                { value: "template", label: "Template", desc: "CQT + Viterbi" },
+              ] as const).map((m) => (
+                <button
+                  key={m.value}
+                  onClick={() => setDetectMethod(m.value)}
+                  className={cn(
+                    "flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all border text-center",
+                    detectMethod === m.value
+                      ? "bg-cyan-400/10 text-cyan-400 border-cyan-400/30"
+                      : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border",
+                  )}
+                >
+                  <div>{m.label}</div>
+                  <div className="text-[9px] opacity-60 mt-0.5">{m.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Button
           size="lg"

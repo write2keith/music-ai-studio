@@ -107,6 +107,47 @@ class ChordDetector:
         except Exception:
             self._model = None
 
+    def _load_audio(self, audio_path: str) -> tuple[np.ndarray, int]:
+        """Load audio with librosa for multi-format support (MP3, WAV, FLAC, etc.)."""
+        import librosa
+        data, sr = librosa.load(str(audio_path), sr=None, mono=True)
+        data = data.astype(np.float32)
+        mx = np.max(np.abs(data))
+        if mx > 1e-6:
+            data = data / mx
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+        return data, sr
+
+    def extract_chroma_harmonic(self, audio: np.ndarray, sr: int) -> np.ndarray:
+        """Extract chroma from harmonic component (HPSS) for cleaner chord features."""
+        import librosa
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+
+        # Harmonic-percussive source separation
+        harmonic, _ = librosa.effects.hpss(audio, margin=3.0)
+
+        hop_length = 512
+        n_bins = 84
+
+        cqt = np.abs(librosa.cqt(
+            y=harmonic, sr=sr, hop_length=hop_length,
+            n_bins=n_bins, bins_per_octave=12,
+            fmin=librosa.note_to_hz("C2"),
+        ))
+
+        # CENS chroma: energy-normalized, more robust to timbre variations
+        chroma = librosa.feature.chroma_cens(
+            C=cqt, sr=sr, hop_length=hop_length,
+            n_chroma=12, bins_per_octave=12,
+        )
+
+        per_frame_norm = np.linalg.norm(chroma, axis=0)
+        per_frame_norm[per_frame_norm < 1e-8] = 1.0
+        chroma = chroma / per_frame_norm
+        return chroma.astype(np.float32)
+
     def extract_cqt_chroma(self, audio: np.ndarray, sr: int) -> np.ndarray:
         import librosa
         if audio.ndim > 1:
@@ -132,12 +173,33 @@ class ChordDetector:
         chroma = chroma / per_frame_norm
         return chroma.astype(np.float32)
 
-    def detect(self, audio_path: str) -> dict:
-        import scipy.io.wavfile as wav
-        sr, data = wav.read(str(audio_path))
-        data = data.astype(np.float32)
-        if data.ndim > 1:
-            data = data.mean(axis=1)
+    def detect_harmonic(self, audio_path: str) -> dict:
+        """Detection using harmonic separation + CENS chroma (autoChord-inspired)."""
+        data, sr = self._load_audio(audio_path)
+        duration = len(data) / sr
+
+        chroma = self.extract_chroma_harmonic(data, sr)
+        n_frames = chroma.shape[1]
+        hop_length = 512
+        frame_time = hop_length / sr
+
+        # Template matching with better chroma
+        probs = np.zeros((N_CLASSES, n_frames), dtype=np.float32)
+        for f in range(n_frames):
+            probs[:, f] = _classify_chroma(chroma[:, f])
+
+        chord_indices = viterbi_decode(probs, self.transitions)
+        chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
+
+        return {
+            "chords": chords,
+            "duration_secs": round(duration, 2),
+            "method": "harmonic",
+        }
+
+    def detect_cnn(self, audio_path: str) -> dict:
+        """CNN-based chord detection."""
+        data, sr = self._load_audio(audio_path)
         duration = len(data) / sr
 
         self._load_model()
@@ -160,11 +222,43 @@ class ChordDetector:
 
         chord_indices = viterbi_decode(probs, self.transitions)
         chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
+
         return {
             "chords": chords,
             "duration_secs": round(duration, 2),
             "method": "cnn" if self._model is not None else "cqt-template",
         }
+
+    def detect_template(self, audio_path: str) -> dict:
+        """Template-based chord detection (fallback)."""
+        data, sr = self._load_audio(audio_path)
+        duration = len(data) / sr
+
+        chroma = self.extract_cqt_chroma(data, sr)
+        n_frames = chroma.shape[1]
+        hop_length = 512
+        frame_time = hop_length / sr
+
+        probs = np.zeros((N_CLASSES, n_frames), dtype=np.float32)
+        for f in range(n_frames):
+            probs[:, f] = _classify_chroma(chroma[:, f])
+
+        chord_indices = viterbi_decode(probs, self.transitions)
+        chords = _indices_to_events(chord_indices, n_frames, frame_time, sr, len(data))
+
+        return {
+            "chords": chords,
+            "duration_secs": round(duration, 2),
+            "method": "cqt-template",
+        }
+
+    def detect(self, audio_path: str, method: str = "harmonic") -> dict:
+        if method == "cnn":
+            return self.detect_cnn(audio_path)
+        elif method == "template":
+            return self.detect_template(audio_path)
+        else:
+            return self.detect_harmonic(audio_path)
 
 
 def viterbi_decode(probs: np.ndarray, transitions: np.ndarray) -> np.ndarray:

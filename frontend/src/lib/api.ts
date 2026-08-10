@@ -278,10 +278,11 @@ export const api = {
     },
     vocalRemoveStatus: (jobId: string) =>
       request<{ status: string; instrumental_ready: boolean; vocals_ready: boolean }>(`/api/tools/vocal-remove/${jobId}/status`),
-    chordDetect: (file: File) => {
+    chordDetect: (file: File, method?: string) => {
       const fd = new FormData();
       fd.append("file", file);
-      return upload<ChordDetectResult>("/api/tools/chord-detect", fd);
+      const qs = method ? `?method=${encodeURIComponent(method)}` : "";
+      return upload<ChordDetectResult>(`/api/tools/chord-detect${qs}`, fd);
     },
     pitchTempo: (file: File, pitchSemitones: number, tempoFactor: number) => {
       const fd = new FormData();
