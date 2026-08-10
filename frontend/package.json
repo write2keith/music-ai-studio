@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "mkdir -p public/alphatab/font public/alphatab/soundfont && cp -n node_modules/@coderline/alphatab/dist/font/* public/alphatab/font/ 2>/dev/null; cp -n node_modules/@coderline/alphatab/dist/soundfont/* public/alphatab/soundfont/ 2>/dev/null; true"
   },
   "dependencies": {
+    "@coderline/alphatab": "^1.8.4",
     "@radix-ui/react-avatar": "^1.2.6",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
@@ -36,6 +38,7 @@
     "vexflow": "^5.0.0"
   },
   "devDependencies": {
+    "@coderline/alphatab-webpack": "^1.8.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

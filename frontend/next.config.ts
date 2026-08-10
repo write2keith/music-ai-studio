@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: [".monkeycode-ai.live", "127.0.0.1", "localhost"],
 
-  transpilePackages: ["soundtouchjs", "vexflow"],
+  transpilePackages: ["soundtouchjs", "vexflow", "@coderline/alphatab"],
 
   turbopack: {
     root: ".",
@@ -11,6 +11,19 @@ const nextConfig: NextConfig = {
 
   experimental: {
     proxyClientMaxBodySize: "500mb",
+  },
+
+  webpack(config) {
+    // alphaTab webpack plugin (webpack-only; Turbopack copies assets via postinstall)
+    try {
+      const { AlphaTabWebPackPlugin } = require("@coderline/alphatab-webpack");
+      config.plugins.push(
+        new AlphaTabWebPackPlugin({
+          assetOutputDir: "public/alphatab",
+        })
+      );
+    } catch {}
+    return config;
   },
 
   async rewrites() {

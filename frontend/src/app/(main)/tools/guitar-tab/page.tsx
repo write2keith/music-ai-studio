@@ -19,9 +19,14 @@ const StaveRenderer = dynamic(
   { ssr: false, loading: () => <div className="h-40 rounded-lg bg-daw-surface-3/30 animate-pulse" /> },
 );
 
+const AlphaTabViewer = dynamic(
+  () => import("@/components/studio/AlphaTabViewer"),
+  { ssr: false, loading: () => <div className="h-40 rounded-lg bg-daw-surface-3/30 animate-pulse" /> },
+);
+
 const NOTE_NAMES_SHORT = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-type ViewMode = "tab" | "staff";
+type ViewMode = "tab" | "staff" | "alphaTab";
 
 function formatTime(seconds: number): string {
   if (seconds <= 0 || !isFinite(seconds)) return "00:00.00";
@@ -141,6 +146,7 @@ export default function GuitarTabPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("tab");
+  const [gpFileBuffer, setGpFileBuffer] = useState<ArrayBuffer | null>(null);
 
   // Refs for playback (avoids stale closures in RAF)
   const isPlayingRef = useRef(false);
@@ -356,6 +362,7 @@ export default function GuitarTabPage() {
     setTabResult(null);
     setTabError("");
     setAudioBuffer(null);
+    setGpFileBuffer(null);
     stopPlayback();
   }
 
@@ -365,6 +372,7 @@ export default function GuitarTabPage() {
     setTabError("");
     setTabResult(null);
     setAudioBuffer(null);
+    setGpFileBuffer(null);
     stopPlayback();
     try {
       const data = await api.tools.guitarTab(tabFile, tabTuning, separateFirst, analysisMethod);
@@ -379,7 +387,11 @@ export default function GuitarTabPage() {
     setImportingGP(true);
     setTabError("");
     try {
-      const data = await api.tools.importGuitarPro(file);
+      const [data, buffer] = await Promise.all([
+        api.tools.importGuitarPro(file),
+        file.arrayBuffer(),
+      ]);
+      setGpFileBuffer(buffer);
       const tabResult: GuitarTabResult = {
         ok: true,
         notes: data.notes,
@@ -842,7 +854,7 @@ export default function GuitarTabPage() {
                 <PianoView activeNotes={activeNotes} allNotes={notes} />
               </div>
 
-              {/* Tab / Staff toggle */}
+              {/* Tab / Staff / alphaTab toggle */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setViewMode("tab")}
@@ -867,6 +879,20 @@ export default function GuitarTabPage() {
                   <ListMusic className="w-3 h-3 inline mr-1" />
                   Grand Staff
                 </button>
+                {gpFileBuffer && (
+                  <button
+                    onClick={() => setViewMode("alphaTab")}
+                    className={cn(
+                      "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+                      viewMode === "alphaTab"
+                        ? "border-emerald-400/50 text-emerald-300 bg-emerald-400/10"
+                        : "border-daw-border text-daw-text-dim hover:text-daw-text"
+                    )}
+                  >
+                    <Music className="w-3 h-3 inline mr-1" />
+                    alphaTab
+                  </button>
+                )}
               </div>
 
               {/* Notation view */}
@@ -880,6 +906,11 @@ export default function GuitarTabPage() {
                     isPlaying={isPlayingRef.current}
                   />
                 </div>
+              ) : viewMode === "alphaTab" ? (
+                <AlphaTabViewer
+                  fileBuffer={gpFileBuffer}
+                  className="w-full"
+                />
               ) : (
                 <StaveRenderer notes={notes} durationSecs={tabResult.duration_secs} />
               )}
