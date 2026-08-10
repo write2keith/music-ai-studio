@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useMemo } from "react";
+import { Factory, EasyScore } from "vexflow";
 import type { TabNote } from "@/lib/api";
 
 interface Props {
@@ -20,17 +21,28 @@ function pitchToVexKey(pitch: number): string {
 interface QuantizedNote {
   key: string;
   isRest: boolean;
+  vexDuration: string;
 }
 
 function quantizeNotes(notes: TabNote[], _durationSecs: number): QuantizedNote[] {
   if (notes.length === 0) {
-    return [{ key: "B4", isRest: true }];
+    return [{ key: "B4", isRest: true, vexDuration: "w" }];
   }
   const sorted = [...notes].sort((a, b) => a.start_time - b.start_time);
-  return sorted.map((note) => ({
-    key: pitchToVexKey(note.pitch),
-    isRest: false,
-  }));
+  return sorted.map((note) => {
+    const dur = note.end_time - note.start_time;
+    let vexDuration: string;
+    if (dur < 0.15) vexDuration = "16";
+    else if (dur < 0.28) vexDuration = "8";
+    else if (dur < 0.6) vexDuration = "q";
+    else if (dur < 1.2) vexDuration = "h";
+    else vexDuration = "w";
+    return {
+      key: pitchToVexKey(note.pitch),
+      isRest: false,
+      vexDuration,
+    };
+  });
 }
 
 export function StaveRenderer({ notes, durationSecs }: Props) {
@@ -45,53 +57,55 @@ export function StaveRenderer({ notes, durationSecs }: Props) {
     const container = containerRef.current;
     if (!container || notes.length === 0) return;
 
-    const renderStave = async () => {
-      try {
-        const VF = await import("vexflow");
-        container.innerHTML = "";
-
-        const width = Math.max(800, quantizedNotes.length * 36 + 100);
-        const height = 160;
-
-        const { Factory } = VF;
-        const vf = new Factory({
-          renderer: {
-            elementId: container.id || "stave-container",
-            width,
-            height,
-          },
-        });
-
-        const score = vf.EasyScore();
-        const system = vf.System({ x: 20, y: 20, width: width - 40 });
-
-        const parts: string[] = quantizedNotes.map((note) =>
-          note.isRest ? "B4/w/r" : `${note.key}/q`
-        );
-
-        if (parts.length > 0) {
-          system
-            .addStave({
-              voices: [score.voice(score.notes(parts.join(", "), { clef: "treble" }))],
-            })
-            .addClef("treble")
-            .addTimeSignature("4/4");
-        }
-
-        vf.draw();
-      } catch (err) {
-        console.warn("VexFlow render error:", err);
-      }
-    };
-
-    renderStave();
+    renderStave(container, quantizedNotes);
   }, [quantizedNotes, notes.length]);
 
   if (notes.length === 0) return null;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-violet-400/20 bg-[#0f0f1a]">
-      <div id="stave-container" ref={containerRef} />
-    </div>
+    <div
+      id="stave-container"
+      className="overflow-x-auto rounded-lg border border-violet-400/20 bg-[#0f0f1a]"
+      ref={containerRef}
+    />
   );
+}
+
+function renderStave(container: HTMLDivElement, quantizedNotes: QuantizedNote[]) {
+  try {
+    container.innerHTML = "";
+
+    const width = Math.max(800, quantizedNotes.length * 42 + 100);
+    const height = 180;
+
+    const factory = new Factory({
+      renderer: { elementId: "stave-container", width, height },
+    });
+
+    const score = new EasyScore();
+    const system = factory.System({ x: 20, y: 20, width: width - 40 });
+
+    const parts: string[] = quantizedNotes.map((note) =>
+      note.isRest
+        ? `B4/${note.vexDuration}/r`
+        : `${note.key}/${note.vexDuration}`
+    );
+
+    if (parts.length > 0) {
+      system
+        .addStave({
+          voices: [
+            score.voice(
+              score.notes(parts.join(", "), { clef: "treble" })
+            ),
+          ],
+        })
+        .addClef("treble")
+        .addTimeSignature("4/4");
+    }
+
+    factory.draw();
+  } catch (err) {
+    console.warn("VexFlow render error:", err);
+  }
 }
