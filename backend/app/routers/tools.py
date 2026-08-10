@@ -998,6 +998,7 @@ class ChordDetectResponse(BaseModel):
     chords: list[ChordEvent] = []
     duration_secs: float = 0.0
     chord_count: int = 0
+    method: str = ""
 
 
 def _intervals_to_chord(notes: list[int]) -> tuple[str, str, float]:
@@ -1164,6 +1165,7 @@ async def chord_detect(file: UploadFile = File(...), method: str = Query(default
         chords=[ChordEvent(**c) for c in result["chords"]],
         duration_secs=result["duration_secs"],
         chord_count=len(result["chords"]),
+        method=result.get("method", method),
     )
 
 

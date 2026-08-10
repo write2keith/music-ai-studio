@@ -30,7 +30,7 @@ export default function ChordDetectionPage() {
   const [chordDetecting, setChordDetecting] = useState(false);
   const [chordError, setChordError] = useState("");
   const [chordResult, setChordResult] = useState<ChordDetectResult | null>(null);
-  const [detectMethod, setDetectMethod] = useState<"harmonic" | "cnn" | "template">("harmonic");
+  const [detectMethod, setDetectMethod] = useState<"harmonic" | "beat_sync" | "ensemble" | "cnn" | "resnet" | "template">("harmonic");
 
   const [correctionMode, setCorrectionMode] = useState(false);
   const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
@@ -194,24 +194,27 @@ export default function ChordDetectionPage() {
         {chordFile && (
           <div className="space-y-1.5">
             <label className="text-[10px] uppercase tracking-wider text-daw-text-dim">Detection Method</label>
-            <div className="flex gap-1">
+            <div className="grid grid-cols-3 gap-1">
               {([
-                { value: "harmonic", label: "Harmonic", desc: "HPSS + CENS chroma" },
-                { value: "cnn", label: "CNN", desc: "Deep learning model" },
-                { value: "template", label: "Template", desc: "CQT + Viterbi" },
+                { value: "harmonic", label: "Harmonic", desc: "HPSS + CENS" },
+                { value: "beat_sync", label: "Beat Sync", desc: "PYIN + beats" },
+                { value: "ensemble", label: "Ensemble", desc: "3-way vote" },
+                { value: "cnn", label: "CNN", desc: "Deep model" },
+                { value: "resnet", label: "ResNet", desc: "Residual CNN" },
+                { value: "template", label: "Template", desc: "CQT Viterbi" },
               ] as const).map((m) => (
                 <button
                   key={m.value}
                   onClick={() => setDetectMethod(m.value)}
                   className={cn(
-                    "flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all border text-center",
+                    "px-2 py-1.5 rounded-md text-xs font-medium transition-all border text-center",
                     detectMethod === m.value
                       ? "bg-cyan-400/10 text-cyan-400 border-cyan-400/30"
                       : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border",
                   )}
                 >
                   <div>{m.label}</div>
-                  <div className="text-[9px] opacity-60 mt-0.5">{m.desc}</div>
+                  <div className="text-[8px] opacity-60 mt-0.5">{m.desc}</div>
                 </button>
               ))}
             </div>
@@ -310,13 +313,18 @@ export default function ChordDetectionPage() {
               </div>
 
               {/* Header */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="accent" className="text-[10px]">
                   {chordResult.chord_count} chords
                 </Badge>
                 <span className="text-xs text-daw-text-dim">
                   {formatTime(chordResult.duration_secs)}
                 </span>
+                {chordResult.method && (
+                  <span className="text-[9px] text-daw-text-dim bg-daw-surface-2 px-1.5 py-0.5 rounded">
+                    {chordResult.method}
+                  </span>
+                )}
                 {calibration && calibration.chord_corrections > 0 && (
                   <span className="text-[10px] text-daw-green">
                     chord accuracy {Math.round(calibration.chord_accuracy * 100)}%

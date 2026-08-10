@@ -436,6 +436,7 @@ export interface ChordDetectResult {
   chords: ChordEvent[];
   duration_secs: number;
   chord_count: number;
+  method?: string;
 }
 
 export interface PitchTempoResult {
