@@ -5,8 +5,10 @@ import { motion } from "framer-motion";
 import {
   Play, Pause, Square, SkipBack, ImageIcon, Film, Download, Loader2,
   AlertCircle, FileAudio, Type, ChevronDown, ChevronUp, Mic, Music,
+  Wand2, Guitar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   KaraokeCanvas,
@@ -68,6 +70,12 @@ export default function KaraokePage() {
 
   // UI panels
   const [bgPanelOpen, setBgPanelOpen] = useState(true);
+
+  // Creation mode
+  type CreationMode = "song" | "instrumental" | null;
+  const [creationMode, setCreationMode] = useState<CreationMode>(null);
+  const [separating, setSeparating] = useState(false);
+  const [sepProgress, setSepProgress] = useState("");
 
   // Export
   const [exporting, setExporting] = useState(false);
@@ -134,6 +142,47 @@ export default function KaraokePage() {
           ctx.close();
         }).catch(() => ctx.close());
       });
+    },
+    [audioUrl],
+  );
+
+  const handleCreateFromSong = useCallback(
+    async (file: File) => {
+      setAudioFile(file);
+      setSeparating(true);
+      setSepProgress("Separating vocals...");
+      setError("");
+      try {
+        const result = await api.tools.vocalRemove(file);
+        if (!result.ok || !result.instrumental_url) {
+          throw new Error("Vocal separation failed");
+        }
+        setSepProgress("Loading instrumental...");
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        const instUrl = result.instrumental_url;
+        setAudioUrl(instUrl);
+        setLyricLines([]);
+        setSyncWords([]);
+        setSyncIndex(0);
+        setAudioBuffer(null);
+
+        const audio = new Audio(instUrl);
+        audio.addEventListener("loadedmetadata", () => setAudioDuration(audio.duration));
+
+        const resp = await fetch(instUrl);
+        const ab = await resp.arrayBuffer();
+        const ctx = new AudioContext();
+        try {
+          const buf = await ctx.decodeAudioData(ab);
+          setAudioBuffer(buf);
+        } finally {
+          ctx.close();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Separation failed");
+        setAudioFile(null);
+      }
+      setSeparating(false);
     },
     [audioUrl],
   );
@@ -427,7 +476,7 @@ export default function KaraokePage() {
         }
         const t = frame / 30;
 
-        // Background
+  // Background
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -569,6 +618,56 @@ export default function KaraokePage() {
       </div>
 
       <div className="glass rounded-xl p-5 space-y-3">
+        {/* ── Creation Mode ── */}
+        {!creationMode && !audioFile && (
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setCreationMode("song")}
+              className="p-4 rounded-xl border border-daw-border bg-daw-surface-2/60 hover:bg-daw-surface-2 hover:border-daw-accent/40 transition-all text-left group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center mb-2 group-hover:bg-violet-500/20 transition-colors">
+                <Wand2 className="w-5 h-5 text-violet-400" />
+              </div>
+              <h3 className="text-sm font-semibold text-daw-text mb-0.5">From a song</h3>
+              <p className="text-[10px] text-daw-text-dim leading-relaxed">
+                Upload a song with vocals. We'll separate vocals, build the instrumental, and generate synced karaoke lyrics.
+              </p>
+            </button>
+            <button
+              onClick={() => setCreationMode("instrumental")}
+              className="p-4 rounded-xl border border-daw-border bg-daw-surface-2/60 hover:bg-daw-surface-2 hover:border-cyan-400/40 transition-all text-left group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-2 group-hover:bg-cyan-500/20 transition-colors">
+                <Guitar className="w-5 h-5 text-cyan-400" />
+              </div>
+              <h3 className="text-sm font-semibold text-daw-text mb-0.5">From instrumental</h3>
+              <p className="text-[10px] text-daw-text-dim leading-relaxed">
+                Already have a karaoke track? Upload your instrumental and sync lyrics directly.
+              </p>
+            </button>
+          </div>
+        )}
+
+        {creationMode && !audioFile && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs text-daw-text-dim">
+              {creationMode === "song" ? "From a song" : "From instrumental"}
+            </span>
+            <button
+              onClick={() => setCreationMode(null)}
+              className="text-[10px] text-daw-text-dim hover:text-daw-text underline"
+            >
+              change
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {error}
+          </div>
+        )}
         {/* ── Background Selector ── */}
         <div>
           <button
@@ -653,44 +752,59 @@ export default function KaraokePage() {
         </div>
 
         {/* ── Audio Upload ── */}
-        <div
-          onDrop={(e) => {
-            e.preventDefault();
-            const f = e.dataTransfer.files[0];
-            if (f) handleAudioLoad(f);
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onClick={() => !audioFile && document.getElementById("karaoke-audio-input")?.click()}
-          className={cn(
-            "border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors",
-            audioFile
-              ? "border-daw-green/50 bg-daw-green/5"
-              : "border-daw-border hover:border-cyan-400/40 hover:bg-daw-surface-2",
-          )}
-        >
-          <input
-            id="karaoke-audio-input"
-            type="file"
-            accept=".wav,.mp3,.m4a,audio/*"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleAudioLoad(f);
+        {creationMode && (
+          <div
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files[0];
+              if (f && !separating) {
+                creationMode === "song" ? handleCreateFromSong(f) : handleAudioLoad(f);
+              }
             }}
-          />
-          {audioFile ? (
-            <div className="flex items-center justify-center gap-2">
-              <FileAudio className="w-4 h-4 text-daw-green" />
-              <span className="text-sm">{audioFile.name}</span>
-              <span className="text-xs text-daw-text-dim">{audioDuration.toFixed(1)}s</span>
-            </div>
-          ) : (
-            <p className="text-sm text-daw-text-muted">
-              <Music className="w-4 h-4 inline mr-1 opacity-40" />
-              Drop an instrumental track here
-            </p>
-          )}
-        </div>
+            onDragOver={(e) => e.preventDefault()}
+            onClick={() => !audioFile && !separating && document.getElementById("karaoke-audio-input")?.click()}
+            className={cn(
+              "border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors",
+              separating
+                ? "border-amber-500/50 bg-amber-500/5 cursor-wait"
+                : audioFile
+                ? "border-daw-green/50 bg-daw-green/5"
+                : "border-daw-border hover:border-daw-accent/40 hover:bg-daw-surface-2",
+            )}
+          >
+            <input
+              id="karaoke-audio-input"
+              type="file"
+              accept=".wav,.mp3,.m4a,audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f && !separating) {
+                  creationMode === "song" ? handleCreateFromSong(f) : handleAudioLoad(f);
+                }
+              }}
+            />
+            {separating ? (
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span className="text-sm text-amber-300">{sepProgress}</span>
+              </div>
+            ) : audioFile ? (
+              <div className="flex items-center justify-center gap-2">
+                <FileAudio className="w-4 h-4 text-daw-green" />
+                <span className="text-sm">{audioFile.name}</span>
+                <span className="text-xs text-daw-text-dim">{audioDuration.toFixed(1)}s</span>
+              </div>
+            ) : (
+              <p className="text-sm text-daw-text-muted">
+                <Music className="w-4 h-4 inline mr-1 opacity-40" />
+                {creationMode === "song"
+                  ? "Drop a song here (vocals will be separated)"
+                  : "Drop an instrumental track here"}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Hidden audio element */}
         {audioUrl && (
@@ -705,21 +819,23 @@ export default function KaraokePage() {
         )}
 
         {/* ── Live Preview Canvas ── */}
-        <div className="rounded-lg overflow-hidden border border-daw-border bg-black">
-          <KaraokeCanvas
-            lines={lyricLines}
-            currentTime={isPlaying ? currentTime : 0}
-            backgroundImage={imgRef.current}
-            backgroundVideo={videoRef.current}
-            backgroundColor={bgColor === "linear" ? "#0f0f23" : bgColor}
-            width={CANVAS_W}
-            height={CANVAS_H}
-            isRecording={false}
-            isPlaying={isPlaying}
-            titleText={audioFile ? audioFile.name : undefined}
-            className="w-full"
-          />
-        </div>
+        {audioUrl && (
+          <div className="rounded-lg overflow-hidden border border-daw-border bg-black">
+            <KaraokeCanvas
+              lines={lyricLines}
+              currentTime={isPlaying ? currentTime : 0}
+              backgroundImage={imgRef.current}
+              backgroundVideo={videoRef.current}
+              backgroundColor={bgColor === "linear" ? "#0f0f23" : bgColor}
+              width={CANVAS_W}
+              height={CANVAS_H}
+              isRecording={false}
+              isPlaying={isPlaying}
+              titleText={audioFile ? audioFile.name : undefined}
+              className="w-full"
+            />
+          </div>
+        )}
 
         {/* ── Audio Transport ── */}
         {audioUrl && (
@@ -765,6 +881,7 @@ export default function KaraokePage() {
         )}
 
         {/* ── Lyrics Input + Sync ── */}
+        {creationMode && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <label className="text-[10px] uppercase tracking-widest text-daw-text-dim font-semibold">
@@ -941,6 +1058,7 @@ export default function KaraokePage() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Timeline Editor (always visible when synced) ── */}
         {lyricLines.length > 0 && (
@@ -988,13 +1106,6 @@ export default function KaraokePage() {
             <p className="text-[9px] text-daw-text-dim mt-1 text-center">
               Records {CANVAS_W}x{CANVAS_H} + audio at 30fps
             </p>
-          </div>
-        )}
-
-        {error && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            {error}
           </div>
         )}
       </div>

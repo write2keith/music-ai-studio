@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Loader2, AlertCircle, Sparkles, FileAudio,
-  Upload, Check, Play, Pause, ArrowUp, ArrowDown,
+  Upload, Check, Play, Pause, ArrowUp, ArrowDown, Volume2,
 } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,46 +37,182 @@ export default function VoiceChangerPage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<VoiceChangeResult | null>(null);
-  const previewRef = useRef<HTMLAudioElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
+
+  // Real-time preview state
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const previewCtxRef = useRef<AudioContext | null>(null);
+  const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewTime, setPreviewTime] = useState(0);
+  const [autoPreview, setAutoPreview] = useState(true);
+  const previewStartRef = useRef(0);
+  const previewRafRef = useRef(0);
 
   useEffect(() => {
-    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      stopPreview();
+    };
   }, [previewUrl]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  function stopPreview() {
+    const src = previewSourceRef.current;
+    if (src) {
+      try { src.stop(); } catch {}
+      previewSourceRef.current = null;
+    }
+    setIsPreviewing(false);
+    if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+  }
+
+  function startPreview(seekTo?: number) {
+    const buffer = audioBufferRef.current;
+    if (!buffer) return;
+
+    stopPreview();
+
+    let ctx = previewCtxRef.current;
+    if (!ctx || ctx.state === "closed") {
+      ctx = new AudioContext();
+      previewCtxRef.current = ctx;
+    }
+    if (ctx.state === "suspended") ctx.resume();
+
+    const start = seekTo ?? previewStartRef.current;
+    const preFilter = ctx.createBiquadFilter();
+    const postFilter = ctx.createBiquadFilter();
+
+    // Formant shift via spectral tilt: high formant = emphasize highs, low = emphasize lows
+    if (formantShift > 0) {
+      preFilter.type = "highshelf";
+      preFilter.frequency.value = 800;
+      preFilter.gain.value = formantShift * 5;
+      postFilter.type = "lowshelf";
+      postFilter.frequency.value = 400;
+      postFilter.gain.value = -formantShift * 2;
+    } else if (formantShift < 0) {
+      preFilter.type = "lowshelf";
+      preFilter.frequency.value = 500;
+      preFilter.gain.value = -formantShift * 4;
+      postFilter.type = "highshelf";
+      postFilter.frequency.value = 1500;
+      postFilter.gain.value = formantShift * 3;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+
+    // Pitch shift via playback rate (duration changes — fine for preview)
+    const pitchFactor = 2 ** (semitones / 12);
+    source.playbackRate.value = pitchFactor;
+
+    if (formantShift !== 0) {
+      source.connect(preFilter);
+      preFilter.connect(postFilter);
+      postFilter.connect(ctx.destination);
+    } else {
+      source.connect(ctx.destination);
+    }
+
+    source.start(0, start);
+    previewSourceRef.current = source;
+    previewStartRef.current = start;
+
+    // Track playback position
+    let lastUpdate = performance.now();
+    const tick = () => {
+      if (!previewSourceRef.current) return;
+      const now = performance.now();
+      const dt = (now - lastUpdate) / 1000;
+      lastUpdate = now;
+      setPreviewTime((t) => t + dt);
+      previewRafRef.current = requestAnimationFrame(tick);
+    };
+    setIsPreviewing(true);
+    previewRafRef.current = requestAnimationFrame(tick);
+
+    source.onended = () => {
+      previewSourceRef.current = null;
+      setIsPreviewing(false);
+      if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+    };
+  }
+
+  function togglePreview() {
+    if (isPreviewing) {
+      stopPreview();
+    } else {
+      setPreviewTime(previewStartRef.current);
+      startPreview();
+    }
+  }
+
+  // Debounced preview update on slider change
+  const previewTimeoutRef = useRef<number | null>(null);
+  function schedulePreviewUpdate() {
+    if (!autoPreview || !audioBufferRef.current) return;
+    if (previewTimeoutRef.current) clearTimeout(previewTimeoutRef.current);
+    previewTimeoutRef.current = setTimeout(() => {
+      if (isPreviewing) {
+        startPreview(previewStartRef.current);
+      }
+    }, 200);
+  }
+
+  const handleSemitones = useCallback((v: number) => {
+    setSemitones(v);
+    schedulePreviewUpdate();
+  }, [isPreviewing, autoPreview]);
+
+  const handleFormant = useCallback((v: number) => {
+    setFormantShift(v);
+    schedulePreviewUpdate();
+  }, [isPreviewing, autoPreview]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const f = e.dataTransfer.files[0];
     if (f?.type.startsWith("audio/") || /\.(wav|mp3|ogg|flac|m4a|aac)$/i.test(f.name)) {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(f);
-      setResult(null);
-      setError("");
-      setPreviewUrl(URL.createObjectURL(f));
+      loadFile(f);
     }
   }, [previewUrl]);
 
   const handleFileInput = (f: File) => {
+    loadFile(f);
+  };
+
+  async function loadFile(f: File) {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    stopPreview();
     setFile(f);
     setResult(null);
     setError("");
-    setPreviewUrl(URL.createObjectURL(f));
-  };
+    setPreviewTime(0);
+    previewStartRef.current = 0;
+    audioBufferRef.current = null;
 
-  function togglePreview(e: React.MouseEvent) {
-    e.stopPropagation();
-    const a = previewRef.current;
-    if (!a) return;
-    if (a.paused) { a.play(); setIsPreviewing(true); }
-    else { a.pause(); setIsPreviewing(false); }
+    const url = URL.createObjectURL(f);
+    setPreviewUrl(url);
+
+    try {
+      const ab = await f.arrayBuffer();
+      const ctx = new AudioContext();
+      const buf = await ctx.decodeAudioData(ab);
+      audioBufferRef.current = buf;
+      ctx.close();
+    } catch {}
   }
 
   function applyPreset(s: number, f: number) {
     setSemitones(s);
     setFormantShift(f);
+    previewTimeoutRef.current = setTimeout(() => {
+      if (isPreviewing && audioBufferRef.current) {
+        startPreview(previewStartRef.current);
+      }
+    }, 200);
   }
 
   async function handleChange() {
@@ -95,6 +231,7 @@ export default function VoiceChangerPage() {
   }
 
   const isPlaying = result && audioPlayer.isCurrentUrl(result.url) && audioPlayer.isPlaying;
+  const hasAudio = audioBufferRef.current !== null;
 
   return (
     <div className="max-w-2xl">
@@ -104,8 +241,8 @@ export default function VoiceChangerPage() {
           Voice Changer
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
-          Transform voice with pitch shifting and formant preservation. Change gender, create
-          character voices, or experiment with robotic and chipmunk effects.
+          Transform voice with pitch shifting and formant preservation. Preview effects in real-time,
+          then process the full file when satisfied.
         </p>
       </div>
 
@@ -115,7 +252,7 @@ export default function VoiceChangerPage() {
           onDrop={handleDrop}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onClick={() => document.getElementById("vg-file-input")?.click()}
+          onClick={() => !file && document.getElementById("vg-file-input")?.click()}
           className={cn(
             "border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors",
             file
@@ -134,16 +271,61 @@ export default function VoiceChangerPage() {
             }}
           />
           {file ? (
-            <div className="flex items-center justify-center gap-3">
-              <button
-                onClick={togglePreview}
-                className="p-1.5 rounded-full bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 transition-colors"
-              >
-                {isPreviewing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-              </button>
-              <FileAudio className="w-5 h-5 text-daw-green" />
-              <span className="text-sm font-medium">{file.name}</span>
-              <span className="text-xs text-daw-text-dim">({formatSize(file.size)})</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-center gap-3">
+                <FileAudio className="w-5 h-5 text-daw-green" />
+                <span className="text-sm font-medium">{file.name}</span>
+                <span className="text-xs text-daw-text-dim">({formatSize(file.size)})</span>
+                {hasAudio && (
+                  <Badge variant="green" className="text-[9px]">
+                    <Check className="w-2.5 h-2.5" /> Ready
+                  </Badge>
+                )}
+              </div>
+
+              {/* Preview transport bar */}
+              {hasAudio && (
+                <div className="flex items-center gap-2 max-w-xs mx-auto">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); togglePreview(); }}
+                    className={cn(
+                      "p-1.5 rounded-full transition-colors",
+                      isPreviewing
+                        ? "bg-pink-500/20 text-pink-400"
+                        : "bg-daw-surface-2 text-daw-text-dim hover:text-daw-text",
+                    )}
+                  >
+                    {isPreviewing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={audioBufferRef.current?.duration ?? 1}
+                    step={0.05}
+                    value={previewTime}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const t = Number(e.target.value);
+                      setPreviewTime(t);
+                      previewStartRef.current = t;
+                      if (isPreviewing) startPreview(t);
+                    }}
+                    className="flex-1 h-1 rounded-full bg-daw-surface-2 accent-pink-400 cursor-pointer"
+                  />
+                  <span className="text-[9px] text-daw-text-dim font-mono w-12 text-right tabular-nums">
+                    {formatSecs(previewTime)}
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={autoPreview}
+                      onChange={(e) => setAutoPreview(e.target.checked)}
+                      className="w-3 h-3 rounded accent-pink-400"
+                    />
+                    <span className="text-[9px] text-daw-text-dim">auto</span>
+                  </label>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
@@ -153,16 +335,6 @@ export default function VoiceChangerPage() {
           )}
         </div>
 
-        {previewUrl && (
-        <audio
-          ref={previewRef}
-          src={previewUrl}
-          onEnded={() => setIsPreviewing(false)}
-          onPause={() => setIsPreviewing(false)}
-          className="hidden"
-        />
-        )}
-
         {/* Pitch */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
@@ -171,7 +343,7 @@ export default function VoiceChangerPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setSemitones(Math.max(-12, semitones - 1))}
+              onClick={() => handleSemitones(Math.max(-12, semitones - 1))}
               className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
             >-</button>
             <input
@@ -179,11 +351,11 @@ export default function VoiceChangerPage() {
               min={-12}
               max={12}
               value={semitones}
-              onChange={(e) => setSemitones(Number(e.target.value))}
+              onChange={(e) => handleSemitones(Number(e.target.value))}
               className="flex-1 h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-daw-accent"
             />
             <button
-              onClick={() => setSemitones(Math.min(12, semitones + 1))}
+              onClick={() => handleSemitones(Math.min(12, semitones + 1))}
               className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
             >+</button>
             <input
@@ -191,7 +363,7 @@ export default function VoiceChangerPage() {
               min={-12}
               max={12}
               value={semitones}
-              onChange={(e) => setSemitones(Math.max(-12, Math.min(12, Number(e.target.value) || 0)))}
+              onChange={(e) => handleSemitones(Math.max(-12, Math.min(12, Number(e.target.value) || 0)))}
               className="w-12 bg-daw-surface-1 text-daw-text text-xs text-center rounded px-1 py-0.5 outline-none border border-daw-border [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
@@ -210,7 +382,7 @@ export default function VoiceChangerPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setFormantShift(Math.max(-6, formantShift - 1))}
+              onClick={() => handleFormant(Math.max(-6, formantShift - 1))}
               className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
             >-</button>
             <input
@@ -218,11 +390,11 @@ export default function VoiceChangerPage() {
               min={-6}
               max={6}
               value={formantShift}
-              onChange={(e) => setFormantShift(Number(e.target.value))}
+              onChange={(e) => handleFormant(Number(e.target.value))}
               className="flex-1 h-1.5 rounded-full bg-daw-surface-2 appearance-none cursor-pointer accent-cyan-400"
             />
             <button
-              onClick={() => setFormantShift(Math.min(6, formantShift + 1))}
+              onClick={() => handleFormant(Math.min(6, formantShift + 1))}
               className="w-5 h-5 rounded bg-daw-surface-2 text-daw-text-dim hover:text-daw-text text-xs flex items-center justify-center"
             >+</button>
             <input
@@ -230,7 +402,7 @@ export default function VoiceChangerPage() {
               min={-6}
               max={6}
               value={formantShift}
-              onChange={(e) => setFormantShift(Math.max(-6, Math.min(6, Number(e.target.value) || 0)))}
+              onChange={(e) => handleFormant(Math.max(-6, Math.min(6, Number(e.target.value) || 0)))}
               className="w-12 bg-daw-surface-1 text-daw-text text-xs text-center rounded px-1 py-0.5 outline-none border border-daw-border [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
@@ -266,18 +438,35 @@ export default function VoiceChangerPage() {
           </div>
         </div>
 
-        <Button
-          size="lg"
-          className="w-full"
-          onClick={handleChange}
-          disabled={processing || !file}
-        >
-          {processing ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Transforming Voice...</>
-          ) : (
-            <><Sparkles className="w-4 h-4" /> Transform Voice</>
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          {hasAudio && (
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={togglePreview}
+              className="flex-1"
+            >
+              {isPreviewing ? (
+                <><Pause className="w-4 h-4 mr-1" /> Stop Preview</>
+              ) : (
+                <><Volume2 className="w-4 h-4 mr-1" /> Preview Effect</>
+              )}
+            </Button>
           )}
-        </Button>
+          <Button
+            size="lg"
+            className="flex-1"
+            onClick={handleChange}
+            disabled={processing || !file}
+          >
+            {processing ? (
+              <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Processing...</>
+            ) : (
+              <><Sparkles className="w-4 h-4 mr-1" /> Transform Voice</>
+            )}
+          </Button>
+        </div>
 
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
