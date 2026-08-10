@@ -356,9 +356,12 @@ export const api = {
       fd.append("stationary", String(stationary));
       return upload<VoiceCleanResult>("/api/tools/voice-clean", fd);
     },
-    leadBackSplit: (file: File) => {
+    leadBackSplit: (file: File, method: string = "auto", lyricsText: string = "", stereoAware: boolean = true) => {
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("method", method);
+      fd.append("lyrics_text", lyricsText);
+      fd.append("stereo_aware", String(stereoAware));
       return upload<LeadBackResult>("/api/tools/lead-back-split", fd);
     },
     voiceChange: (file: File, semitones: number = 0, formantShift: number = 0, method: string = "auto") => {
@@ -600,6 +603,7 @@ export interface LeadBackResult {
   instrumental_url: string;
   lead_ratio: number;
   duration: number;
+  method: string;
 }
 
 export interface VoiceChangeResult {

@@ -5,12 +5,20 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Loader2, AlertCircle, Users, FileAudio,
   Upload, Check, Play, Pause, Mic, Music,
+  Cpu, Brain, Type, Radio,
 } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api, LeadBackResult } from "@/lib/api";
 import { useAudioPlayer } from "@/lib/audio-player";
+
+const METHODS = [
+  { k: "auto", label: "Auto", icon: Cpu, desc: "Best available" },
+  { k: "energy", label: "Energy", icon: Radio, desc: "RMS threshold" },
+  { k: "polyphony", label: "Polyphony", icon: Brain, desc: "F0 analysis" },
+  { k: "hybrid", label: "Hybrid", icon: Users, desc: "All combined" },
+] as const;
 
 export default function LeadBackSplitPage() {
   const audioPlayer = useAudioPlayer();
@@ -22,6 +30,10 @@ export default function LeadBackSplitPage() {
   const previewRef = useRef<HTMLAudioElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isPreviewing, setIsPreviewing] = useState(false);
+
+  const [method, setMethod] = useState<"auto" | "energy" | "polyphony" | "hybrid">("auto");
+  const [lyricsText, setLyricsText] = useState("");
+  const [stereoAware, setStereoAware] = useState(true);
 
   useEffect(() => {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
@@ -62,7 +74,7 @@ export default function LeadBackSplitPage() {
     setError("");
     setResult(null);
     try {
-      const data = await api.tools.leadBackSplit(file);
+      const data = await api.tools.leadBackSplit(file, method, lyricsText, stereoAware);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -83,7 +95,7 @@ export default function LeadBackSplitPage() {
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
           Separate a mixed vocal track into lead vocals, backing vocals, and vocal instrumental.
-          First isolates vocals with Demucs, then splits by energy analysis.
+          Now with PYIN polyphony analysis, lyric alignment, and M/S stereo field detection.
         </p>
       </div>
 
@@ -140,6 +152,65 @@ export default function LeadBackSplitPage() {
         />
         )}
 
+        {/* Method Selector */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5">Engine</label>
+          <div className="grid grid-cols-4 gap-1">
+            {METHODS.map(({ k, label, icon: Icon, desc }) => (
+              <button
+                key={k}
+                onClick={() => setMethod(k)}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-2 py-2 rounded-md text-xs font-medium transition-all border",
+                  method === k
+                    ? "bg-purple-500/10 text-purple-400 border-purple-400/30"
+                    : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border"
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{label}</span>
+                <span className="text-[8px] text-daw-text-dim leading-none">{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Lyrics Text Input */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5 flex items-center gap-1">
+            <Type className="w-3 h-3" /> Lyrics Text (for forced alignment)
+          </label>
+          <textarea
+            value={lyricsText}
+            onChange={(e) => setLyricsText(e.target.value)}
+            placeholder="Paste lyrics here to improve lead/back separation via word alignment..."
+            rows={3}
+            className="w-full bg-daw-surface-1 text-daw-text text-xs rounded-md px-3 py-2 outline-none border border-daw-border placeholder:text-daw-text-dim resize-none"
+          />
+        </div>
+
+        {/* Stereo M/S Toggle */}
+        <label
+          className={cn(
+            "flex items-center gap-2 cursor-pointer select-none p-2 rounded-md border transition-colors",
+            stereoAware
+              ? "bg-purple-500/5 border-purple-400/20"
+              : "bg-daw-surface-2 border-transparent"
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={stereoAware}
+            onChange={(e) => setStereoAware(e.target.checked)}
+            className="w-3 h-3 rounded accent-purple-400"
+          />
+          <Radio className="w-3 h-3 text-daw-text-dim" />
+          <span className="text-[10px] text-daw-text-dim">
+            <span className="text-daw-text">Mid-Side Stereo Analysis</span>
+            {" "}Center-focused audio → lead, wide stereo → backing
+          </span>
+        </label>
+
         <Button
           size="lg"
           className="w-full"
@@ -147,7 +218,7 @@ export default function LeadBackSplitPage() {
           disabled={processing || !file}
         >
           {processing ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Splitting vocals (Demucs + energy analysis)...</>
+            <><Loader2 className="w-4 h-4 animate-spin" /> Splitting vocals...</>
           ) : (
             <><Users className="w-4 h-4" /> Split Lead & Backing</>
           )}
@@ -181,8 +252,13 @@ export default function LeadBackSplitPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-daw-text">Lead Vocals</span>
                   <Badge variant="accent">{Math.round(result.lead_ratio * 100)}% of audio</Badge>
+                  {result.method && (
+                    <Badge variant="default" className="text-[9px] bg-purple-500/10 text-purple-400">
+                      {result.method}
+                    </Badge>
+                  )}
                 </div>
-                <span className="text-[10px] text-daw-text-dim">Main vocal line (loudest/most prominent)</span>
+                <span className="text-[10px] text-daw-text-dim">Main vocal line</span>
               </div>
               <a href={result.lead_url} download="lead_vocals.wav" className="p-2 rounded-lg bg-daw-surface-2 hover:bg-daw-surface-3 transition-colors">
                 <Download className="w-4 h-4 text-daw-accent" />

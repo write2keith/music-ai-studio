@@ -2419,11 +2419,15 @@ class LeadBackResponse(BaseModel):
     instrumental_url: str = ""
     lead_ratio: float = 0.0
     duration: float = 0.0
+    method: str = ""
 
 
 @router.post("/lead-back-split", response_model=LeadBackResponse)
 async def lead_back_split(
     file: UploadFile = File(...),
+    method: str = Form(default="auto"),
+    lyrics_text: str = Form(default=""),
+    stereo_aware: bool = Form(default=True),
 ):
     try:
         upload_dir = Path(settings.UPLOAD_DIR)
@@ -2441,7 +2445,10 @@ async def lead_back_split(
             raise HTTPException(status_code=400, detail="No vocals found in the audio")
 
         from ..services.lead_back import split_lead_backing
-        result = await _run_blocking(split_lead_backing, vocals_path)
+        result = await _run_blocking(
+            split_lead_backing, vocals_path,
+            method=method, lyrics_text=lyrics_text, stereo_aware=stereo_aware,
+        )
 
         return LeadBackResponse(
             ok=True,
@@ -2450,6 +2457,7 @@ async def lead_back_split(
             instrumental_url=f"/api/audio/stems/htdemucs/{Path(result['instrumental_path']).parent.name}/{Path(result['instrumental_path']).name}",
             lead_ratio=result["lead_ratio"],
             duration=result["duration"],
+            method=result.get("method", method),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
