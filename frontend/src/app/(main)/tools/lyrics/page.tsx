@@ -23,12 +23,9 @@ import type { LyricTranscribeResult } from "@/lib/api";
 
 export default function LyricsPage() {
   const [lyricFile, setLyricFile] = useState<File | null>(null);
-  const [lyricJobId, setLyricJobId] = useState("");
-  const [lyricPolling, setLyricPolling] = useState(false);
   const [lyricTranscribing, setLyricTranscribing] = useState(false);
   const [lyricError, setLyricError] = useState("");
   const [lyricResult, setLyricResult] = useState<LyricTranscribeResult | null>(null);
-  const lyricPollId = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [lyricAudioUrl, setLyricAudioUrl] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -81,63 +78,26 @@ export default function LyricsPage() {
     setCurrentTime(time);
   }, []);
 
-  const pollLyrics = useCallback((jobId: string) => {
-    let attempts = 0;
-    const t = setInterval(async () => {
-      attempts++;
-      try {
-        const data = await api.tools.lyricTranscribeStatus(jobId) as LyricTranscribeResult & { error?: string };
-        if (data.status === "completed" || (data.status === "failed" && data.full_text)) {
-          setLyricResult(data);
-          setLyricPolling(false);
-          setLyricTranscribing(false);
-          clearInterval(t);
-          if (data.status === "failed") {
-            setLyricError(data.error || "Transcription completed with errors");
-          }
-        } else if (data.status === "failed") {
-          setLyricError(data.error || "Transcription failed");
-          setLyricPolling(false);
-          setLyricTranscribing(false);
-          clearInterval(t);
-        } else if (attempts >= 300) {
-          setLyricError("Transcription timed out after 10 minutes");
-          setLyricPolling(false);
-          setLyricTranscribing(false);
-          clearInterval(t);
-        }
-      } catch (err) {
-        if (attempts >= 5) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setLyricError(msg || "Transcription failed");
-          setLyricPolling(false);
-          setLyricTranscribing(false);
-          clearInterval(t);
-        }
-      }
-    }, 2000);
-    lyricPollId.current = t;
-  }, []);
-
   const handleLyricTranscribe = useCallback(async () => {
     if (!lyricFile) return;
     setLyricTranscribing(true);
     setLyricError("");
     setLyricResult(null);
     try {
-      const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals);
-      setLyricJobId(data.job_id);
-      setLyricPolling(true);
-      pollLyrics(data.job_id);
+      const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals) as LyricTranscribeResult & { error?: string };
+      setLyricResult(data);
+      if (data.status === "failed") {
+        setLyricError(data.error || "Transcription completed with errors");
+      }
     } catch (err) {
       setLyricError(err instanceof Error ? err.message : String(err));
+    } finally {
       setLyricTranscribing(false);
     }
-  }, [lyricFile, pollLyrics]);
+  }, [lyricFile, isolateVocals]);
 
   useEffect(() => {
     return () => {
-      if (lyricPollId.current) clearInterval(lyricPollId.current);
       if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
@@ -265,7 +225,7 @@ export default function LyricsPage() {
               </button>
               <FileAudio className="w-5 h-5 text-daw-green" />
               <span className="text-sm font-medium">{lyricFile.name}</span>
-              {lyricPolling && (
+              {lyricTranscribing && (
                 <span className="flex items-center gap-1 text-yellow-400 text-xs">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Transcribing...
@@ -386,6 +346,34 @@ export default function LyricsPage() {
                     >
                       <Download className="w-3 h-3" />
                       Save .lrc
+                    </button>
+                  )}
+                  {lyricResult.srt_path && (
+                    <button
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.srt_path.split("/").pop() || "lyrics.srt")}`;
+                        a.download = "lyrics.srt";
+                        a.click();
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      Save .srt
+                    </button>
+                  )}
+                  {lyricResult.json_path && (
+                    <button
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.json_path.split("/").pop() || "lyrics.json")}`;
+                        a.download = "lyrics.json";
+                        a.click();
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      Save .json
                     </button>
                   )}
                 </div>

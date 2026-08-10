@@ -300,8 +300,6 @@ export const api = {
       fd.append("isolate_vocals", String(isolateVocals));
       return upload<LyricTranscribeResult>("/api/tools/lyric-transcribe", fd);
     },
-    lyricTranscribeStatus: (jobId: string) =>
-      request<LyricTranscribeResult>(`/api/tools/lyric-transcribe/${jobId}`),
     guitarTab: (file: File, tuningKey: string = "standard", separateFirst: boolean = false, analysisMethod: string = "advanced") => {
       const fd = new FormData();
       fd.append("file", file);
@@ -528,15 +526,17 @@ export interface LyricLineDetailed {
 
 export interface LyricTranscribeResult {
   ok: boolean;
-  job_id: string;
   status: string;
   lyrics: LyricLine[];
   lines: LyricLineDetailed[];
   full_text: string;
   language: string;
   lang_code: string;
+  error: string;
   txt_path: string;
   lrc_path: string;
+  srt_path: string;
+  json_path: string;
   duration_secs: number;
   word_count: number;
 }

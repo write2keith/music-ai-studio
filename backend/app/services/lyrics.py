@@ -196,6 +196,8 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
     base_name = Path(audio_path).stem
     txt_path = output_dir / f"{base_name}_lyrics.txt"
     lrc_path = output_dir / f"{base_name}_lyrics.lrc"
+    srt_path = output_dir / f"{base_name}_lyrics.srt"
+    json_path = output_dir / f"{base_name}_lyrics.json"
 
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(full_text + "\n")
@@ -205,7 +207,42 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
             start_m = int(line["start"] // 60)
             start_s = line["start"] % 60
             line_text = " ".join(w["word"] for w in line["words"])
-            f.write(f"[{start_m:02d}:{start_s:05.2f}] {line_text}\n")
+            if line_text:
+                f.write(f"[{start_m:02d}:{start_s:05.2f}] {line_text}\n")
+
+    # SRT subtitle format
+    with open(srt_path, "w", encoding="utf-8") as f:
+        idx = 1
+        for line in lines:
+            words = line.get("words", [])
+            if not words:
+                continue
+            text = " ".join(w["word"] for w in words)
+            if not text.strip():
+                continue
+            start_ts = _format_srt_time(line["start"])
+            end_ts = _format_srt_time(line["end"])
+            f.write(f"{idx}\n{start_ts} --> {end_ts}\n{text}\n\n")
+            idx += 1
+
+    # Full word-level JSON with metadata
+    import json
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "language": LANGUAGE_NAMES.get(detected_lang, detected_lang),
+            "lang_code": detected_lang,
+            "duration_secs": round(duration, 2),
+            "word_count": len(all_words),
+            "lines": [
+                {
+                    "start": ln["start"],
+                    "end": ln["end"],
+                    "text": " ".join(w["word"] for w in ln["words"]),
+                    "words": [{"word": w["word"], "start": w["start"], "end": w["end"], "confidence": w.get("confidence", 0.8)} for w in ln["words"]],
+                }
+                for ln in lines
+            ],
+        }, f, indent=2, ensure_ascii=False)
 
     legacy_lines = [
         {"start": ln["start"], "end": ln["end"], "text": " ".join(w["word"] for w in ln["words"]), "confidence": 0.85}
@@ -222,9 +259,19 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
         "lang_code": detected_lang,
         "txt_path": str(txt_path),
         "lrc_path": str(lrc_path),
+        "srt_path": str(srt_path),
+        "json_path": str(json_path),
         "word_count": len(all_words),
         "duration_secs": round(duration, 2),
     }
+
+
+def _format_srt_time(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def _whisper_transcribe(audio: np.ndarray, sr: int, language: str, model) -> list[dict]:

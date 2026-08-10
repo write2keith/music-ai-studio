@@ -1718,8 +1718,7 @@ class LyricLine(BaseModel):
 
 class LyricTranscribeResponse(BaseModel):
     ok: bool = True
-    job_id: str = ""
-    status: str = "queued"
+    status: str = "completed"
     lyrics: list[LyricLine] = []
     lines: list[LyricLineDetailed] = []
     full_text: str = ""
@@ -1728,7 +1727,10 @@ class LyricTranscribeResponse(BaseModel):
     error: str = ""
     txt_path: str = ""
     lrc_path: str = ""
+    srt_path: str = ""
+    json_path: str = ""
     duration_secs: float = 0
+    word_count: int = 0
 
 
 @router.post("/lyric-transcribe", response_model=LyricTranscribeResponse)
@@ -1741,60 +1743,30 @@ async def lyric_transcribe(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     content = await file.read()
-    ext = Path(file.filename).suffix if file.filename else ".wav"
+    ext = Path(file.filename).suffix or ".wav"
     save_path = output_dir / f"lyric_{uuid.uuid4().hex[:12]}{ext}"
     save_path.write_bytes(content)
 
-    from ..queue.worker import queue
-    job = queue.submit(
-        "lyric_transcribe",
-        {"audio_path": str(save_path), "language": language, "isolate_vocals": isolate_vocals},
+    from ..services.lyrics import transcribe_lyrics
+    result = await _run_blocking(
+        transcribe_lyrics, str(save_path), language=language, isolate_vocals=isolate_vocals,
     )
-    logger.info(f"Lyric transcribe job {job.id} enqueued (isolate_vocals={isolate_vocals})")
 
-    return LyricTranscribeResponse(ok=True, job_id=job.id, status="queued")
-
-
-@router.get("/lyric-transcribe/{job_id}", response_model=LyricTranscribeResponse)
-async def lyric_transcribe_status(job_id: str):
-    from ..queue.worker import queue, JobStatus
-
-    job = queue.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    resp = LyricTranscribeResponse(
+    return LyricTranscribeResponse(
         ok=True,
-        job_id=job_id,
-        status=job.status,
+        status="completed",
+        lyrics=[LyricLine(**l) for l in result.get("lyrics", [])],
+        lines=[LyricLineDetailed(**ln) for ln in result.get("lines", [])],
+        full_text=result.get("full_text", ""),
+        language=result.get("language", ""),
+        lang_code=result.get("lang_code", ""),
+        txt_path=result.get("txt_path", ""),
+        lrc_path=result.get("lrc_path", ""),
+        srt_path=result.get("srt_path", ""),
+        json_path=result.get("json_path", ""),
+        duration_secs=result.get("duration_secs", 0),
+        word_count=result.get("word_count", 0),
     )
-
-    if job.status == JobStatus.FAILED:
-        resp.status = "failed"
-        if job.result:
-            r = job.result
-            resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
-            resp.lines = [LyricLineDetailed(**ln) for ln in r.get("lines", [])]
-            resp.full_text = r.get("full_text", "")
-            resp.language = r.get("language", "")
-            resp.lang_code = r.get("lang_code", "")
-            resp.txt_path = r.get("txt_path", "")
-            resp.lrc_path = r.get("lrc_path", "")
-            resp.duration_secs = r.get("duration_secs", 0)
-        resp.error = job.error
-
-    if job.status == JobStatus.COMPLETED and job.result:
-        r = job.result
-        resp.lyrics = [LyricLine(**l) for l in r.get("lyrics", [])]
-        resp.lines = [LyricLineDetailed(**ln) for ln in r.get("lines", [])]
-        resp.full_text = r.get("full_text", "")
-        resp.language = r.get("language", "")
-        resp.lang_code = r.get("lang_code", "")
-        resp.txt_path = r.get("txt_path", "")
-        resp.lrc_path = r.get("lrc_path", "")
-        resp.duration_secs = r.get("duration_secs", 0)
-
-    return resp
 
 
 @router.get("/lyrics/download/{filename:path}")
