@@ -5,7 +5,7 @@ import { Mic, Volume2, VolumeX, ChevronDown, ChevronUp, Square } from "lucide-re
 import { cn } from "@/lib/utils";
 import { TimelineClip } from "./TimelineClip";
 import { AutomationLane, type AutomationPoint } from "./AutomationLane";
-import { interpolateEnvelope as curveInterpolate } from "@/lib/audio-utils";
+import { interpolateEnvelope as curveInterpolate, equalPowerGains } from "@/lib/audio-utils";
 
 export interface TrackData {
   id: string;
@@ -208,7 +208,26 @@ export function TrackRow({
     const source = ctx.createBufferSource();
     source.buffer = bufferRef.current;
 
-    const { input, panLeft, panRight, output: pannerOut, setPan } = masterClock.createEqualPowerPanner(track.pan);
+    const { left: leftGain, right: rightGain } = equalPowerGains(track.pan);
+    const input = ctx.createGain();
+    input.gain.value = 1;
+    const panLeft = ctx.createGain();
+    panLeft.gain.value = leftGain;
+    const panRight = ctx.createGain();
+    panRight.gain.value = rightGain;
+    const pannerOut = ctx.createGain();
+    pannerOut.gain.value = 1;
+
+    input.connect(panLeft);
+    input.connect(panRight);
+    panLeft.connect(pannerOut);
+    panRight.connect(pannerOut);
+
+    const setPan = (p: number) => {
+      const g = equalPowerGains(p);
+      panLeft.gain.setTargetAtTime(g.left, ctx.currentTime, 0.02);
+      panRight.gain.setTargetAtTime(g.right, ctx.currentTime, 0.02);
+    };
 
     const gain = ctx.createGain();
     gain.gain.value = track.volume;

@@ -311,7 +311,8 @@ def midi_to_tab_tayuya(midi_notes: list[dict], tuning_key: str = DEFAULT_TUNING)
 
         root_midi = midi_notes[0]["pitch"] if midi_notes else 64
         root_name = NOTE_NAMES[root_midi % 12]
-        key_tuple = (root_name, "major")
+        root_octave = root_midi // 12 - 1
+        key_tuple = (f"{root_name}{root_octave}", "major")
 
         tabs = Tabs(notes=tayuya_notes, key=key_tuple)
         to_play = tabs.generate_notes()

@@ -69,7 +69,7 @@ export class AudioChunkManager {
     return this.fullBuffer !== null;
   }
 
-  get activeWindow(playheadTime: number): { start: number; end: number } | null {
+  getActiveWindow(playheadTime: number): { start: number; end: number } | null {
     if (!this.fullBuffer) return null;
     const start = Math.max(0, playheadTime - this.preloadMargin);
     const end = Math.min(this.fullBuffer.duration, playheadTime + this.chunkSize + this.preloadMargin);
@@ -77,7 +77,7 @@ export class AudioChunkManager {
   }
 
   shouldSourceBeActive(playheadTime: number, clipStart: number, clipDuration: number): boolean {
-    const window = this.activeWindow(playheadTime);
+    const window = this.getActiveWindow(playheadTime);
     if (!window) return true;
     const clipEnd = clipStart + clipDuration;
     return clipStart < window.end && clipEnd > window.start;

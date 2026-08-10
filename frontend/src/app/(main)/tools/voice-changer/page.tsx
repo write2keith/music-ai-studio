@@ -101,8 +101,6 @@ export default function VoiceChangerPage() {
       startPreview();
     }
   }
-    setIsPreviewing(false);
-  }
 
   function buildPreviewChain(ctx: AudioContext, source: AudioBufferSourceNode) {
     if (previewFilterRef.current) {
@@ -200,15 +198,6 @@ export default function VoiceChangerPage() {
         if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
       }
     };
-  }
-
-  function togglePreview() {
-    if (isPreviewing) {
-      stopPreview();
-    } else {
-      setPreviewTime(previewStartRef.current);
-      startPreview();
-    }
   }
 
   const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
