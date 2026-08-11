@@ -39,8 +39,9 @@ export default function AlphaTabViewer({
     let cancelled = false;
     let api: any = null;
 
-    // @ts-ignore - public-asset dynamic import bypasses Turbopack module resolution
-    import("/alphatab/alphatab.mjs")
+    // Runtime URL import — bundlers cannot statically analyze window.location
+    const url = window.location.origin + "/alphatab/alphatab.mjs";
+    import(/* webpackIgnore: true */ url)
       .then((mod) => {
         if (cancelled || !containerRef.current) return;
 
