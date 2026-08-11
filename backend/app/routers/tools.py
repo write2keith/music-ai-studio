@@ -2556,58 +2556,42 @@ async def lead_back_split(
         lb_stem_dir = Path(result["lead_path"]).parent.name  # e.g., "leadback_vocals"
         mixed_url = ""
 
-        if output_mode == "remove_lead":
-            import scipy.io.wavfile as _wav
+        if output_mode in ("remove_lead", "remove_backing"):
+            import soundfile as sf
             import numpy as np
-            backing_v = Path(result["backing_path"])
-            inst_v = Path(result["instrumental_path"])
-            sr, bdata = _wav.read(str(backing_v))
-            bdata = bdata.astype(np.float32)
-            if bdata.ndim > 1: bdata = bdata.mean(axis=1)
-            _, idata = _wav.read(str(inst_v))
-            idata = idata.astype(np.float32)
-            if idata.ndim > 1: idata = idata.mean(axis=1)
-            mn = min(len(bdata), len(idata))
-            mixed = bdata[:mn] + idata[:mn]
+            import scipy.io.wavfile as _wav
+
+            if output_mode == "remove_lead":
+                prim = result["backing_path"]
+                sec = result["instrumental_path"]
+                out_name = "no_lead.wav"
+            else:
+                prim = result["lead_path"]
+                sec = result["instrumental_path"]
+                out_name = "no_backing.wav"
+
+            pdata, sr = sf.read(prim)
+            pdata = pdata.astype(np.float32)
+            if pdata.ndim > 1: pdata = pdata.mean(axis=1)
+            sdata, _ = sf.read(sec)
+            sdata = sdata.astype(np.float32)
+            if sdata.ndim > 1: sdata = sdata.mean(axis=1)
+            mn = min(len(pdata), len(sdata))
+            mixed = pdata[:mn] + sdata[:mn]
+
             for stem_key in ["bass", "drums", "other"]:
                 sp = stem_result["stems"].get(stem_key)
                 if sp:
-                    _, sdata = _wav.read(str(Path(sp)))
-                    sdata = sdata.astype(np.float32)
-                    if sdata.ndim > 1: sdata = sdata.mean(axis=1)
-                    mn2 = min(len(mixed), len(sdata))
-                    mixed[:mn2] += sdata[:mn2]
+                    sd, _ = sf.read(str(Path(sp)))
+                    sd = sd.astype(np.float32)
+                    if sd.ndim > 1: sd = sd.mean(axis=1)
+                    mn2 = min(len(mixed), len(sd))
+                    mixed[:mn2] += sd[:mn2]
+
             peak = np.max(np.abs(mixed))
             if peak > 0: mixed = mixed / peak * 0.95
             mixed = (mixed * 32767).astype(np.int16)
-            mix_path = stems_dir / "no_lead.wav"
-            _wav.write(str(mix_path), sr, mixed)
-            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
-        elif output_mode == "remove_backing":
-            import scipy.io.wavfile as _wav
-            import numpy as np
-            lead_v = Path(result["lead_path"])
-            inst_v = Path(result["instrumental_path"])
-            sr, ldata = _wav.read(str(lead_v))
-            ldata = ldata.astype(np.float32)
-            if ldata.ndim > 1: ldata = ldata.mean(axis=1)
-            _, idata = _wav.read(str(inst_v))
-            idata = idata.astype(np.float32)
-            if idata.ndim > 1: idata = idata.mean(axis=1)
-            mn = min(len(ldata), len(idata))
-            mixed = ldata[:mn] + idata[:mn]
-            for stem_key in ["bass", "drums", "other"]:
-                sp = stem_result["stems"].get(stem_key)
-                if sp:
-                    _, sdata = _wav.read(str(Path(sp)))
-                    sdata = sdata.astype(np.float32)
-                    if sdata.ndim > 1: sdata = sdata.mean(axis=1)
-                    mn2 = min(len(mixed), len(sdata))
-                    mixed[:mn2] += sdata[:mn2]
-            peak = np.max(np.abs(mixed))
-            if peak > 0: mixed = mixed / peak * 0.95
-            mixed = (mixed * 32767).astype(np.int16)
-            mix_path = stems_dir / "no_backing.wav"
+            mix_path = stems_dir / out_name
             _wav.write(str(mix_path), sr, mixed)
             mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
         elif output_mode == "lead_only":
