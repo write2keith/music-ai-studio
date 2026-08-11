@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Play, Pause, Square, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AlphaTabApi } from "@coderline/alphatab";
 
 export interface AlphaTabViewerProps {
   fileUrl?: string;
@@ -18,7 +19,7 @@ export default function AlphaTabViewer({
   onReady,
 }: AlphaTabViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<import("@coderline/alphatab").AlphaTabApi | null>(null);
+  const apiRef = useRef<AlphaTabApi | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [soundFontProgress, setSoundFontProgress] = useState(0);
@@ -26,8 +27,6 @@ export default function AlphaTabViewer({
   const initApi = useCallback(() => {
     if (!containerRef.current) return;
     if (apiRef.current) return;
-
-    const { AlphaTabApi } = require("@coderline/alphatab") as typeof import("@coderline/alphatab");
 
     const api = new AlphaTabApi(containerRef.current, {
       core: {
