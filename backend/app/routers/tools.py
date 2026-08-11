@@ -1812,6 +1812,90 @@ async def download_lyrics(filename: str):
     return FileResponse(str(file_path), media_type="text/plain", filename=filename)
 
 
+# ── CDG Rendering ──────────────────────────────────────────────
+
+
+class CdgRenderRequest(BaseModel):
+    lines: list[dict] = []
+    duration: float = 0
+    title: str = ""
+
+
+class CdgRenderResponse(BaseModel):
+    ok: bool = True
+    cdg_url: str = ""
+    cdg_path: str = ""
+
+
+@router.post("/render-cdg", response_model=CdgRenderResponse)
+async def render_cdg_endpoint(body: CdgRenderRequest):
+    if not body.lines or body.duration <= 0:
+        raise HTTPException(status_code=400, detail="Lines and duration are required")
+
+    output_dir = Path("output/cdg")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_title = body.title.replace(" ", "_").replace("/", "_")[:50] if body.title else "karaoke"
+    output_path = str(output_dir / f"{safe_title}_{hash(str(body.lines)) & 0xFFFF}.cdg")
+
+    from ..services.cdg_renderer import render_cdg
+    result_path = await _run_blocking(render_cdg, body.lines, body.duration, output_path, body.title or "Karaoke")
+
+    filename = Path(result_path).name
+    return CdgRenderResponse(ok=True, cdg_url=f"/api/tools/cdg-download/{filename}", cdg_path=result_path)
+
+
+@router.get("/cdg-download/{filename:path}")
+async def download_cdg(filename: str):
+    from fastapi.responses import FileResponse
+    file_path = Path("output/cdg") / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="CDG file not found")
+    return FileResponse(str(file_path), media_type="application/octet-stream", filename=filename)
+
+
+# ── Lyrics Correction & Search ─────────────────────────────────
+
+
+class LyricsSearchResponse(BaseModel):
+    ok: bool = True
+    results: list[dict] = []
+
+
+@router.get("/lyrics-search", response_model=LyricsSearchResponse)
+async def lyrics_search(artist: str = Query(default=""), title: str = Query(default="")):
+    from ..services.lyrics_correction import search_lyrics
+    results = search_lyrics(artist, title)
+    return LyricsSearchResponse(ok=True, results=results)
+
+
+class LyricsCorrectRequest(BaseModel):
+    lines: list[dict] = []
+    reference_lyrics: str = ""
+
+
+class LyricsCorrectResponse(BaseModel):
+    ok: bool = True
+    corrected_lines: list[dict] = []
+
+
+@router.post("/lyrics-correct", response_model=LyricsCorrectResponse)
+async def lyrics_correct(body: LyricsCorrectRequest):
+    if not body.lines or not body.reference_lyrics.strip():
+        raise HTTPException(status_code=400, detail="Lines and reference lyrics are required")
+    from ..services.lyrics_correction import correct_lyrics
+    result = await _run_blocking(correct_lyrics, body.lines, body.reference_lyrics)
+    return LyricsCorrectResponse(ok=True, corrected_lines=result)
+
+
+@router.get("/lyrics-fetch")
+async def lyrics_fetch(url: str = Query(default=""), source: str = Query(default="")):
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    from ..services.lyrics_correction import fetch_lyrics_text
+    text = await _run_blocking(fetch_lyrics_text, url, source)
+    return {"text": text}
+
+
 # ── Guitar Tab Generator ──────────────────────────────────────
 
 GUITAR_TUNINGS = {

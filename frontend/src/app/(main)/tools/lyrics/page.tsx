@@ -18,6 +18,7 @@ import {
   Film,
   Check,
   Edit,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,6 @@ export default function LyricsPage() {
   const [showLrcEditor, setShowLrcEditor] = useState(false);
   const [progressSession, setProgressSession] = useState("");
   const progress = useProgress(progressSession);
-  const rafRef = useRef<number>(0);
   const linesContainerRef = useRef<HTMLDivElement | null>(null);
   const karaokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -124,38 +124,112 @@ export default function LyricsPage() {
   useEffect(() => {
     return () => {
       if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [lyricAudioUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
+    const container = linesContainerRef.current;
+    if (!audio || !container) return;
+
+    let rafId = 0;
+    let prevLineIdx = -1;
+
+    const tick = () => {
+      const t = audio.currentTime;
+      setCurrentTime(t);
+
+      // Determine active line index
+      const lines = allLinesRef.current;
+      let activeIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (t >= lines[i].start && t < lines[i].end) {
+          activeIdx = i;
+          break;
+        }
+        if (t < lines[i].start) {
+          activeIdx = Math.max(0, i - 1);
+          break;
+        }
+      }
+      if (activeIdx < 0 && lines.length > 0) activeIdx = lines.length - 1;
+
+      // Smooth-scroll to center active line (only when index changes or every ~300ms)
+      if (activeIdx !== prevLineIdx || (rafId > 0 && rafId % 18 === 0)) {
+        prevLineIdx = activeIdx;
+        const activeEl = container.querySelector(`[data-line-idx="${activeIdx}"]`);
+        if (activeEl) {
+          const cRect = container.getBoundingClientRect();
+          const elRect = activeEl.getBoundingClientRect();
+          const targetTop = container.scrollTop + elRect.top - cRect.top - cRect.height / 2 + elRect.height / 2;
+          container.scrollTo({ top: targetTop, behavior: "smooth" });
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const onPlay = () => {
+      prevLineIdx = -1;
+      rafId = requestAnimationFrame(tick);
+    };
+    const onPause = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+    };
+    const onEnded = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      setIsPlaying(false);
+    };
 
     const onTimeUpdate = () => {
-      if (!audio) return;
-      rafRef.current = requestAnimationFrame(() => {
+      if (audio.paused) {
         setCurrentTime(audio.currentTime);
-      });
+        const lines = allLinesRef.current;
+        for (let i = 0; i < lines.length; i++) {
+          if (audio.currentTime >= lines[i].start && audio.currentTime < lines[i].end) {
+            const activeEl = container.querySelector(`[data-line-idx="${i}"]`);
+            if (activeEl) {
+              const cRect = container.getBoundingClientRect();
+              const elRect = activeEl.getBoundingClientRect();
+              const targetTop = container.scrollTop + elRect.top - cRect.top - cRect.height / 2 + elRect.height / 2;
+              container.scrollTo({ top: targetTop, behavior: "smooth" });
+            }
+            break;
+          }
+        }
+      }
     };
-    const onLoadedMeta = () => setDuration(audio.duration || 0);
-    const onEnded = () => setIsPlaying(false);
-    const onPause = () => setIsPlaying(false);
 
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("loadedmetadata", onLoadedMeta);
-    audio.addEventListener("ended", onEnded);
+    const onLoadedMeta = () => setDuration(audio.duration || 0);
+
+    audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("loadedmetadata", onLoadedMeta);
+    audio.addEventListener("seeking", onTimeUpdate);
+    audio.addEventListener("seeked", onTimeUpdate);
+
+    if (!audio.paused) {
+      prevLineIdx = -1;
+      rafId = requestAnimationFrame(tick);
+    }
 
     return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("loadedmetadata", onLoadedMeta);
-      audio.removeEventListener("ended", onEnded);
+      if (rafId) cancelAnimationFrame(rafId);
+      audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("loadedmetadata", onLoadedMeta);
+      audio.removeEventListener("seeking", onTimeUpdate);
+      audio.removeEventListener("seeked", onTimeUpdate);
     };
   }, [lyricAudioUrl]);
 
   const allLines = adjustedLines ?? lyricResult?.lines ?? [];
+  const allLinesRef = useRef(allLines);
+  allLinesRef.current = allLines;
 
   const activeLineIndex = (() => {
     if (!allLines.length) return -1;
@@ -164,19 +238,6 @@ export default function LyricsPage() {
     }
     return allLines.length - 1;
   })();
-
-  useEffect(() => {
-    if (activeLineIndex < 0 || !linesContainerRef.current) return;
-    const activeEl = linesContainerRef.current.querySelector(`[data-line-idx="${activeLineIndex}"]`);
-    if (activeEl) {
-      const container = linesContainerRef.current;
-      const rect = activeEl.getBoundingClientRect();
-      const cRect = container.getBoundingClientRect();
-      if (rect.top < cRect.top || rect.bottom > cRect.bottom) {
-        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-  }, [activeLineIndex]);
 
   const formatTimestamp = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -200,6 +261,28 @@ export default function LyricsPage() {
   const handleLinesUpdate = useCallback((updated: LyricLineDetailed[]) => {
     setAdjustedLines(updated);
   }, []);
+
+  const handleCorrectLyrics = useCallback(async () => {
+    const lines = adjustedLines ?? lyricResult?.lines ?? [];
+    if (!lines.length) return;
+    const title = lyricFile?.name?.replace(/\.[^.]+$/, "") || "";
+    const artist = lyricResult?.language || "";
+    try {
+      const searchRes = await api.tools.searchLyrics(artist, title);
+      if (searchRes.ok && searchRes.results.length > 0) {
+        const first = searchRes.results[0];
+        const fetchRes = await api.tools.lyricsFetch(first.url, first.source);
+        if (fetchRes.text) {
+          const correctRes = await api.tools.correctLyrics(lines, fetchRes.text);
+          if (correctRes.ok) {
+            setAdjustedLines(correctRes.corrected_lines);
+          }
+        }
+      }
+    } catch (err) {
+      setLyricError("Lyrics correction failed: " + String(err));
+    }
+  }, [adjustedLines, lyricResult, lyricFile]);
 
   const downloadFile = useCallback((path: string | undefined, fallbackName: string, fallbackContent: string) => {
     if (path) {
@@ -278,8 +361,8 @@ export default function LyricsPage() {
     videoChunksRef.current = [];
 
     const canvas = document.createElement("canvas");
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = 1920;
+    canvas.height = 1080;
     const ctx = canvas.getContext("2d")!;
     const stream = canvas.captureStream(30);
     const audioCtx = new AudioContext();
@@ -289,7 +372,13 @@ export default function LyricsPage() {
     source.connect(audioCtx.destination);
     const combined = new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
 
-    const recorder = new MediaRecorder(combined, { mimeType: "video/webm;codecs=vp9" });
+    // Prefer MP4 container, fall back to WebM
+    const isMp4 = MediaRecorder.isTypeSupported("video/mp4");
+    const mimeType = isMp4 ? "video/mp4" : "video/webm;codecs=vp9";
+    const fileExt = "mp4";
+    const blobType = isMp4 ? "video/mp4" : "video/webm";
+
+    const recorder = new MediaRecorder(combined, { mimeType });
     mediaRecorderRef.current = recorder;
 
     recorder.ondataavailable = (e) => {
@@ -297,11 +386,11 @@ export default function LyricsPage() {
     };
 
     recorder.onstop = () => {
-      const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
+      const blob = new Blob(videoChunksRef.current, { type: blobType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "karaoke.webm";
+      a.download = `karaoke.${fileExt}`;
       a.click();
       URL.revokeObjectURL(url);
       setVideoExporting(false);
@@ -491,22 +580,34 @@ export default function LyricsPage() {
                         className="absolute right-0 top-full mt-1 z-20 bg-daw-surface-2 border border-daw-border rounded-lg shadow-lg p-1.5 space-y-0.5 min-w-[140px]"
                         onMouseLeave={() => setShowExportMenu(false)}
                       >
-                        {(["txt", "lrc", "srt", "json"] as const).map((fmt) => (
+                        {(["txt", "lrc", "srt", "json", "ass", "cdg"] as const).map((fmt) => (
                           <button
                             key={fmt}
-                            onClick={() => {
-                              if (adjustedLines) {
-                                exportWithAdjusted(fmt);
+                            onClick={async () => {
+                              if (fmt === "cdg") {
+                                try {
+                                  const res = await api.tools.renderCdg(allLines, duration || lyricResult?.duration_secs || 0, lyricFile?.name || "Karaoke");
+                                  if (res.ok && res.cdg_url) {
+                                    const a = document.createElement("a");
+                                    a.href = res.cdg_url;
+                                    a.download = "karaoke.cdg";
+                                    a.click();
+                                  }
+                                } catch (err) {
+                                  setLyricError("CDG render failed: " + String(err));
+                                }
                               } else {
-                                downloadFile(
-                                  lyricResult[`${fmt}_path` as keyof typeof lyricResult] as string | undefined,
-                                  `lyrics.${fmt}`,
-                                  buildLyricsContent(fmt),
-                                );
+                                const content = fmt === "ass" ? buildAssContent(allLines, lyricFile?.name || "Karaoke", lyricResult?.language || "") : buildLyricsContent(fmt as "txt" | "lrc" | "srt" | "json");
+                                const ext = fmt;
+                                const blob = new Blob([content], { type: "text/plain" });
+                                const a = document.createElement("a");
+                                a.href = URL.createObjectURL(blob);
+                                a.download = adjustedLines ? `lyrics_adjusted.${ext}` : `lyrics.${ext}`;
+                                a.click();
+                                URL.revokeObjectURL(a.href);
                               }
                               setShowExportMenu(false);
                             }}
-                            className="w-full text-left text-[10px] px-2 py-1 rounded text-daw-text-dim hover:text-daw-text hover:bg-daw-surface-3 transition-colors"
                           >
                             .{fmt} {adjustedLines ? "(edited)" : ""}
                           </button>
@@ -514,6 +615,16 @@ export default function LyricsPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Correct Lyrics */}
+                  <button
+                    onClick={handleCorrectLyrics}
+                    title="Search for reference lyrics online to improve transcription accuracy"
+                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-daw-border text-daw-text-dim hover:text-daw-accent hover:border-daw-accent transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Correct
+                  </button>
 
                   {/* Video export */}
                   {videoExporting ? (
@@ -763,6 +874,29 @@ export default function LyricsPage() {
           onTogglePlay={togglePlay}
           onSeek={seekTo}
           onExit={() => setShowFullscreen(false)}
+          onExportCdg={async () => {
+            try {
+              const res = await api.tools.renderCdg(allLines, duration || lyricResult?.duration_secs || 0, lyricFile?.name || "Karaoke");
+              if (res.ok && res.cdg_url) {
+                const a = document.createElement("a");
+                a.href = res.cdg_url;
+                a.download = "karaoke.cdg";
+                a.click();
+              }
+            } catch (err) {
+              setLyricError("CDG render failed: " + String(err));
+            }
+          }}
+          onExportAss={() => {
+            const content = buildAssContent(allLines, lyricFile?.name || "Karaoke", lyricResult?.language || "");
+            const blob = new Blob([content], { type: "text/plain" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "karaoke.ass";
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}
+          onCorrectLyrics={handleCorrectLyrics}
         />
         )}
 
@@ -828,26 +962,26 @@ function drawKaraokeFrame(
   ctx.fillRect(0, 0, w, h);
 
   ctx.fillStyle = "#22d3ee20";
-  ctx.fillRect(0, 0, w, 60);
+  ctx.fillRect(0, 0, w, h * 0.07);
   ctx.strokeStyle = "#22d3ee40";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(0, 60);
-  ctx.lineTo(w, 60);
+  ctx.moveTo(0, h * 0.07);
+  ctx.lineTo(w, h * 0.07);
   ctx.stroke();
 
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 18px Inter, sans-serif";
+  ctx.font = "bold 24px Inter, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("Karaoke Export", w / 2, 38);
+  ctx.fillText("Karaoke Export", w / 2, h * 0.045);
 
   const progress = totalDur > 0 ? currentTime / totalDur : 0;
   ctx.fillStyle = "#22d3ee";
-  ctx.fillRect(0, 58, w * progress, 2);
+  ctx.fillRect(0, h * 0.07 - 2, w * progress, 2);
 
   if (lines.length === 0) return;
 
-  const maxLines = 10;
+  const maxLines = 14;
   let activeIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     if (currentTime >= lines[i].start && currentTime < lines[i].end) {
@@ -863,8 +997,8 @@ function drawKaraokeFrame(
 
   const startIdx = Math.max(0, Math.min(activeIdx - 2, lines.length - maxLines));
   const visibleLines = lines.slice(startIdx, startIdx + maxLines);
-  const lineHeight = 42;
-  const topY = 100;
+  const lineHeight = 56;
+  const topY = h * 0.13;
 
   visibleLines.forEach((line, vi) => {
     const actualIdx = startIdx + vi;
@@ -889,23 +1023,75 @@ function drawKaraokeFrame(
         }
       }
 
-      ctx.font = "bold 28px Inter, sans-serif";
+      ctx.font = "bold 36px Inter, sans-serif";
       if (wordActiveIdx >= 0) {
         const before = words.slice(0, wordActiveIdx).map((w) => w.word).join(" ");
         const active = words[wordActiveIdx].word;
         const after = words.slice(wordActiveIdx + 1).map((w) => w.word).join(" ");
         ctx.fillStyle = "#22d3ee";
-        ctx.fillText(`${before} ${active} ${after}`, w / 2, y + 22);
+        ctx.fillText(`${before} ${active} ${after}`, w / 2, y + 36);
       } else {
         ctx.fillStyle = "#22d3ee";
-        ctx.fillText(text, w / 2, y + 22);
+        ctx.fillText(text, w / 2, y + 36);
       }
     } else {
       const text = editedLines[actualIdx] ?? line.words.map((w) => w.word).join(" ");
       ctx.textAlign = "center";
-      ctx.font = "20px Inter, sans-serif";
+      ctx.font = "26px Inter, sans-serif";
       ctx.fillStyle = actualIdx < activeIdx ? "#6b7280" : "#374151";
-      ctx.fillText(text, w / 2, y + 18);
+      ctx.fillText(text, w / 2, y + 30);
     }
   });
+}
+
+function buildAssContent(lines: LyricLineDetailed[], title: string, language: string): string {
+  const header = `[Script Info]
+Title: ${title}
+ScriptType: v4.00+
+Collisions: Normal
+PlayDepth: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,36,&H00FFFFFF,&H000088FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+Style: Active,Arial,40,&H0000F2FE,&H004FACFE,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,3,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  let events = "";
+  for (const line of lines) {
+    const words = line.words;
+    const startTime = _assTime(line.start);
+    const endTime = _assTime(line.end);
+
+    if (words.length <= 1) {
+      const text = words.map((w) => w.word).join(" ");
+      events += `Dialogue: 0,${startTime},${endTime},Active,,0,0,0,,${text}\n`;
+    } else {
+      let karaokeText = "";
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        const dur = Math.round((w.end - w.start) * 100);
+        if (i === words.length - 1) {
+          karaokeText += `{\\k${Math.max(1, dur)}}${w.word}`;
+        } else {
+          karaokeText += `{\\k${Math.max(1, dur)}}${w.word} `;
+        }
+      }
+      events += `Dialogue: 0,${startTime},${endTime},Active,,0,0,0,,${karaokeText}\n`;
+      events += `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${words.map((w) => w.word).join(" ")}\n`;
+    }
+  }
+
+  return header + events;
+}
+
+function _assTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }

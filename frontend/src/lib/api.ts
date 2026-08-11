@@ -380,6 +380,22 @@ export const api = {
     },
     searchImages: (artist: string, title: string = "") =>
       request<ImageSearchResult>(`/api/tools/image-search?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`),
+    searchLyrics: (artist: string, title: string) =>
+      request<{ ok: boolean; results: { title: string; artist: string; url: string; source: string }[] }>(`/api/tools/lyrics-search?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`),
+    correctLyrics: (lines: LyricLineDetailed[], referenceLyrics: string) =>
+      request<{ ok: boolean; corrected_lines: LyricLineDetailed[] }>("/api/tools/lyrics-correct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines, reference_lyrics: referenceLyrics }),
+      }),
+    lyricsFetch: (url: string, source: string) =>
+      request<{ text: string }>(`/api/tools/lyrics-fetch?url=${encodeURIComponent(url)}&source=${encodeURIComponent(source)}`),
+    renderCdg: (lines: LyricLineDetailed[], duration: number, title: string) =>
+      request<{ ok: boolean; cdg_url: string }>("/api/tools/render-cdg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines, duration, title }),
+      }),
   },
   connectProgress: (session: string) => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";

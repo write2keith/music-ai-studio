@@ -32,6 +32,8 @@ export function LyricTimelineEditor({
   const [recalibrateIdx, setRecalibrateIdx] = useState(0);
   const recalRef = useRef<number>(0);
   const rafRef = useRef<number>(0);
+  const linesRef = useRef<LyricLineDetailed[]>(lines);
+  linesRef.current = lines;
 
   const durationSafe = duration || (lines.length > 0 ? lines[lines.length - 1].end + 1 : 60);
   const PADDING = 60;
@@ -163,21 +165,23 @@ export function LyricTimelineEditor({
     if (!rect) return -1;
     const y = e.clientY - rect.top;
     const idx = Math.floor((y - HEADER_H) / ROW_H);
-    return idx >= 0 && idx < lines.length ? idx : -1;
-  }, [lines.length]);
+    return idx >= 0 && idx < linesRef.current.length ? idx : -1;
+  }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const currentLines = linesRef.current;
     const idx = findLineAtY(e);
     if (idx < 0) return;
     setDraggingIdx(idx);
     setDragStartX(e.clientX);
-    setDragStartTime(lines[idx].start);
-  }, [findLineAtY, lines]);
+    setDragStartTime(currentLines[idx].start);
+  }, [findLineAtY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (draggingIdx === null) return;
+    const currentLines = linesRef.current;
     const deltaTime = getMouseTime(e) - dragStartTime;
-    const newLines = [...lines];
+    const newLines = [...currentLines];
     const line = { ...newLines[draggingIdx], words: [...newLines[draggingIdx].words] };
     const shift = Math.round(deltaTime * 1000) / 1000;
     line.start += shift;
@@ -190,14 +194,15 @@ export function LyricTimelineEditor({
     newLines[draggingIdx] = line;
     onLinesUpdate(newLines);
     setDragStartTime(line.start);
-  }, [draggingIdx, getMouseTime, dragStartTime, lines, onLinesUpdate]);
+  }, [draggingIdx, getMouseTime, dragStartTime, onLinesUpdate]);
 
   const handleMouseUp = useCallback(() => {
     setDraggingIdx(null);
   }, []);
 
   const nudgeLine = useCallback((idx: number, ms: number) => {
-    const newLines = [...lines];
+    const currentLines = linesRef.current;
+    const newLines = [...currentLines];
     const line = { ...newLines[idx], words: [...newLines[idx].words] };
     const shift = ms / 1000;
     line.start += shift;
@@ -209,7 +214,7 @@ export function LyricTimelineEditor({
     }));
     newLines[idx] = line;
     onLinesUpdate(newLines);
-  }, [lines, onLinesUpdate]);
+  }, [onLinesUpdate]);
 
   const toggleRecalibrate = useCallback(() => {
     if (recalibrateMode) {
@@ -223,12 +228,13 @@ export function LyricTimelineEditor({
 
   const stampTimestamp = useCallback(() => {
     if (!recalibrateMode) return;
+    const currentLines = linesRef.current;
     const idx = recalRef.current;
-    if (idx >= lines.length) return;
-    const newLines = [...lines];
+    if (idx >= currentLines.length) return;
+    const newLines = [...currentLines];
     const line = { ...newLines[idx], words: [...newLines[idx].words] };
-    const origStart = lines[idx].start;
-    const origEnd = lines[idx].end;
+    const origStart = currentLines[idx].start;
+    const origEnd = currentLines[idx].end;
     const lineDur = origEnd - origStart;
     line.start = currentTime;
     line.end = currentTime + lineDur;
@@ -240,13 +246,13 @@ export function LyricTimelineEditor({
     newLines[idx] = line;
     onLinesUpdate(newLines);
     const next = idx + 1;
-    if (next < lines.length) {
+    if (next < currentLines.length) {
       recalRef.current = next;
       setRecalibrateIdx(next);
     } else {
       setRecalibrateMode(false);
     }
-  }, [recalibrateMode, lines, currentTime, onLinesUpdate]);
+  }, [recalibrateMode, currentTime, onLinesUpdate]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -29,14 +29,23 @@ def _run_generate(params: dict) -> dict:
 
 
 def _run_separate(params: dict) -> dict:
+    import scipy.io.wavfile as wav
     result = separate_stems(
         audio_path=params["audio_path"],
         model_name=params.get("model", "htdemucs"),
     )
+    # Convert float32 demucs output to int16 for browser decodeAudioData compatibility
+    stems_dir = Path(result["stems_dir"])
+    for stem_file in stems_dir.glob("*.wav"):
+        sr, data = wav.read(str(stem_file))
+        if data.dtype == np.float32:
+            converted = (data * 32767).astype(np.int16)
+            wav.write(str(stem_file), sr, converted)
     return result
 
 
 def _run_vocal_prep(params: dict) -> dict:
+    import scipy.io.wavfile as wav
     from ..services.vocal_coach import extract_pitch_pyin
     result = separate_stems(
         audio_path=params["audio_path"],
@@ -45,6 +54,15 @@ def _run_vocal_prep(params: dict) -> dict:
     vocals_path = result["stems"].get("vocals")
     if not vocals_path:
         raise RuntimeError("No vocals stem produced")
+
+    # Convert float32 demucs output to int16 for browser decodeAudioData compatibility
+    stems_dir = Path(result["stems_dir"])
+    for stem_file in stems_dir.glob("*.wav"):
+        sr, data = wav.read(str(stem_file))
+        if data.dtype == np.float32:
+            converted = (data * 32767).astype(np.int16)
+            wav.write(str(stem_file), sr, converted)
+            logger.debug(f"Converted {stem_file.name} float32 -> int16")
 
     pyin_result = extract_pitch_pyin(vocals_path)
     pitch_contour = [
@@ -75,6 +93,12 @@ def _run_vocal_remove(params: dict) -> dict:
     stems = result["stems"]
     vocals_path = stems.get("vocals", "")
     non_vocal = {k: v for k, v in stems.items() if k != "vocals" and v}
+
+    # Convert vocals from float32 to int16 for browser compatibility
+    if vocals_path:
+        v_sr, v_data = wav.read(vocals_path)
+        if v_data.dtype == np.float32:
+            wav.write(vocals_path, v_sr, (v_data * 32767).astype(np.int16))
 
     instrumental_path = ""
     if non_vocal:

@@ -35,8 +35,8 @@ interface SyncWord {
   synced: boolean;
 }
 
-const CANVAS_W = 640;
-const CANVAS_H = 360;
+const CANVAS_W = 1920;
+const CANVAS_H = 1080;
 
 export default function KaraokePage() {
   // Audio
@@ -440,22 +440,23 @@ export default function KaraokePage() {
       if (audioTrack) stream.addTrack(audioTrack);
 
       const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-          ? "video/webm;codecs=vp9"
-          : "video/webm",
-      });
+      const isMp4 = MediaRecorder.isTypeSupported("video/mp4");
+      const mimeType = isMp4 ? "video/mp4" : (MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm");
+      const fileExt = "mp4";
+      const blobType = isMp4 ? "video/mp4" : "video/webm";
+
+      const recorder = new MediaRecorder(stream, { mimeType });
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "video/webm" });
+        const blob = new Blob(chunks, { type: blobType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `karaoke-${Date.now()}.webm`;
+        a.download = `karaoke-${Date.now()}.${fileExt}`;
         a.click();
         URL.revokeObjectURL(url);
         canvas.remove();
@@ -1104,7 +1105,7 @@ export default function KaraokePage() {
               )}
             </Button>
             <p className="text-[9px] text-daw-text-dim mt-1 text-center">
-              Records {CANVAS_W}x{CANVAS_H} + audio at 30fps
+              Records 1920x1080 MP4 + audio at 30fps
             </p>
           </div>
         )}

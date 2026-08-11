@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Minimize2, Pause, Play, SkipForward, SkipBack } from "lucide-react";
+import { Minimize2, Pause, Play, SkipForward, SkipBack, Download, Sparkles, FileDown } from "lucide-react";
 import type { LyricLineDetailed } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,9 @@ interface FullscreenLyricsProps {
   onSkipForward?: () => void;
   onSkipBack?: () => void;
   onSkipNext?: () => void;
+  onExportCdg?: () => void;
+  onExportAss?: () => void;
+  onCorrectLyrics?: () => void;
 }
 
 const getActiveFontSize = (text: string | undefined) => {
@@ -57,8 +60,12 @@ export default function FullscreenLyrics({
   onSkipForward,
   onSkipBack,
   onSkipNext,
+  onExportCdg,
+  onExportAss,
+  onCorrectLyrics,
 }: FullscreenLyricsProps) {
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -256,6 +263,56 @@ export default function FullscreenLyrics({
           <div className="flex justify-between text-[11px] text-white/40 tabular-nums">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 items-center">
+          {/* Correct Lyrics */}
+          {onCorrectLyrics && (
+            <button
+              onClick={onCorrectLyrics}
+              title="Search for reference lyrics online"
+              className="px-3 py-2 rounded-lg border border-white/15 text-white/60 hover:text-cyan-400 hover:border-cyan-400/40 transition-colors flex items-center gap-1.5 text-xs"
+            >
+              <Sparkles size={14} />
+              Correct
+            </button>
+          )}
+
+          {/* Export dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="px-3 py-2 rounded-lg border border-white/15 text-white/60 hover:text-white hover:border-white/30 transition-colors flex items-center gap-1.5 text-xs"
+            >
+              <Download size={14} />
+              Export
+            </button>
+            {showExportMenu && (
+              <div
+                className="absolute right-0 bottom-full mb-2 bg-white/10 backdrop-blur-xl border border-white/15 rounded-lg p-1.5 space-y-0.5 min-w-[120px]"
+                onMouseLeave={() => setShowExportMenu(false)}
+              >
+                {onExportAss && (
+                  <button
+                    onClick={() => { onExportAss(); setShowExportMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+                  >
+                    <FileDown size={12} />
+                    Export .ass (Karaoke)
+                  </button>
+                )}
+                {onExportCdg && (
+                  <button
+                    onClick={() => { onExportCdg(); setShowExportMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+                  >
+                    <FileDown size={12} />
+                    Export .cdg (Karaoke)
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
