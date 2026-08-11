@@ -43,26 +43,32 @@ export default function VocalRemoverPage() {
 
   async function pollRemover(jobId: string) {
     let attempts = 0;
+    setRemoverStatus("processing (0m elapsed)");
     const t = setInterval(async () => {
       attempts++;
+      const elapsedMin = Math.round((attempts * 2) / 60);
       try {
         const s = await api.tools.vocalRemoveStatus(jobId);
         if (s.instrumental_ready) {
           setRemoverStatus("ready");
           setRemoving(false);
           clearInterval(t);
-        } else if (attempts >= 300) {
-          setRemoverError("Vocal removal timed out after 10 minutes");
+        } else if (attempts >= 1200) {
+          setRemoverError("Vocal removal timed out after 40 minutes");
           setRemoverStatus("failed");
           setRemoving(false);
           clearInterval(t);
+        } else {
+          setRemoverStatus(`processing (${elapsedMin}m elapsed)`);
         }
       } catch {
-        if (attempts >= 300) {
+        if (attempts >= 1200) {
           setRemoverError("Vocal removal timed out — server may be overloaded");
           setRemoverStatus("failed");
           setRemoving(false);
           clearInterval(t);
+        } else {
+          setRemoverStatus(`processing (${elapsedMin}m elapsed)...`);
         }
       }
     }, 2000);

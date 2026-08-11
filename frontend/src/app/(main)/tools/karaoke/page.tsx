@@ -157,6 +157,22 @@ export default function KaraokePage() {
         if (!result.ok || !result.instrumental_url) {
           throw new Error("Vocal separation failed");
         }
+
+        // Poll until separation job completes
+        if (result.job_id) {
+          for (let i = 0; i < 1200; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const status = await api.tools.vocalRemoveStatus(result.job_id);
+              if (status.status === "completed") break;
+              if (status.status === "failed") throw new Error("Separation job failed");
+              setSepProgress(`Separating vocals... (${Math.round(Math.min(i / 30, 1) * 100)}%)`);
+            } catch (e) {
+              if (e instanceof Error && e.message.includes("failed")) throw e;
+            }
+          }
+        }
+
         setSepProgress("Loading instrumental...");
         if (audioUrl) URL.revokeObjectURL(audioUrl);
         const instUrl = result.instrumental_url;
@@ -171,6 +187,8 @@ export default function KaraokePage() {
 
         const resp = await fetch(instUrl);
         const ab = await resp.arrayBuffer();
+        if (ab.byteLength === 0) throw new Error("Empty audio data received");
+
         const ctx = new AudioContext();
         try {
           const buf = await ctx.decodeAudioData(ab);
