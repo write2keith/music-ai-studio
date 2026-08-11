@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Play, Pause, Square, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AlphaTabApi } from "@coderline/alphatab";
 
 export interface AlphaTabViewerProps {
   fileUrl?: string;
@@ -19,75 +18,81 @@ export default function AlphaTabViewer({
   onReady,
 }: AlphaTabViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<AlphaTabApi | null>(null);
+  const apiRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [soundFontProgress, setSoundFontProgress] = useState(0);
-
-  const initApi = useCallback(() => {
-    if (!containerRef.current) return;
-    if (apiRef.current) return;
-
-    const api = new AlphaTabApi(containerRef.current, {
-      core: {
-        fontDirectory: "/alphatab/font/",
-        useWorkers: true,
-      },
-      display: {
-        scale: 0.9,
-        staveProfile: "score-tab",
-        barsPerRow: -1,
-      },
-      player: {
-        enablePlayer: true,
-        enableCursor: true,
-        enableUserInteraction: true,
-        soundFont: "/alphatab/soundfont/sonivox.sf2",
-        scrollElement: containerRef.current.parentElement ?? undefined,
-      },
-    } as any);
-
-    apiRef.current = api;
-
-    api.soundFontLoad.on((e) => {
-      const pct = e.total > 0 ? Math.round(((e.loaded as number) / (e.total as number)) * 100) : 0;
-      setSoundFontProgress(pct);
-    });
-
-    api.playerReady.on(() => {
-      setIsReady(true);
-    });
-
-    api.renderFinished.on(() => {
-      onReady?.();
-    });
-
-    api.playerStateChanged.on((e) => {
-      setIsPlaying(e.state === 1);
-    });
-
-    return api;
-  }, [onReady]);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     return () => {
       if (apiRef.current) {
-        apiRef.current.destroy();
+        try { apiRef.current.destroy(); } catch {}
         apiRef.current = null;
       }
     };
   }, []);
 
   useEffect(() => {
-    const api = initApi();
-    if (!api) return;
+    if (!containerRef.current || apiRef.current) return;
 
-    if (fileUrl) {
-      api.load(fileUrl);
-    } else if (fileBuffer) {
-      api.load(fileBuffer);
-    }
-  }, [initApi, fileUrl, fileBuffer]);
+    let cancelled = false;
+    let api: any = null;
+
+    import("@coderline/alphatab")
+      .then((mod) => {
+        if (cancelled || !containerRef.current) return;
+
+        api = new mod.AlphaTabApi(containerRef.current, {
+          core: {
+            fontDirectory: "/alphatab/font/",
+            useWorkers: true,
+          },
+          display: {
+            scale: 0.9,
+            staveProfile: "score-tab",
+            barsPerRow: -1,
+          },
+          player: {
+            enablePlayer: true,
+            enableCursor: true,
+            enableUserInteraction: true,
+            soundFont: "/alphatab/soundfont/sonivox.sf2",
+            scrollElement: containerRef.current.parentElement ?? undefined,
+          },
+        } as any);
+
+        apiRef.current = api;
+
+        api.soundFontLoad.on((e: any) => {
+          const pct = e.total > 0 ? Math.round(((e.loaded as number) / (e.total as number)) * 100) : 0;
+          setSoundFontProgress(pct);
+        });
+
+        api.playerReady.on(() => {
+          setIsReady(true);
+        });
+
+        api.renderFinished.on(() => {
+          onReady?.();
+        });
+
+        api.playerStateChanged.on((e: any) => {
+          setIsPlaying(e.state === 1);
+        });
+
+        if (fileUrl) {
+          api.load(fileUrl);
+        } else if (fileBuffer) {
+          api.load(fileBuffer);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
+
+    return () => { cancelled = true; };
+  }, [fileUrl, fileBuffer, onReady]);
 
   const handlePlayPause = useCallback(() => {
     apiRef.current?.playPause();
@@ -96,6 +101,16 @@ export default function AlphaTabViewer({
   const handleStop = useCallback(() => {
     apiRef.current?.stop();
   }, []);
+
+  if (loadError) {
+    return (
+      <div className={cn("flex items-center justify-center p-8 rounded-xl border border-amber-400/20 bg-amber-500/5", className)}>
+        <span className="text-sm text-amber-300">
+          alphaTab requires webpack mode. Run with <code className="text-xs bg-daw-surface-2 px-1 rounded">next dev --webpack</code>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("relative", className)}>
