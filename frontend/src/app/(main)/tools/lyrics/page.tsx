@@ -14,12 +14,16 @@ import {
   SkipBack,
   SkipForward,
   Maximize2,
+  Video,
+  Film,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import type { LyricTranscribeResult } from "@/lib/api";
+import type { LyricTranscribeResult, LyricLineDetailed } from "@/lib/api";
+import { LyricTimelineEditor } from "@/components/studio/LyricTimelineEditor";
 
 export default function LyricsPage() {
   const [lyricFile, setLyricFile] = useState<File | null>(null);
@@ -35,8 +39,16 @@ export default function LyricsPage() {
   const [editText, setEditText] = useState("");
   const [editedLines, setEditedLines] = useState<Record<number, string>>({});
   const [isolateVocals, setIsolateVocals] = useState(false);
+  const [adjustedLines, setAdjustedLines] = useState<LyricLineDetailed[] | null>(null);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [videoExporting, setVideoExporting] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const rafRef = useRef<number>(0);
   const linesContainerRef = useRef<HTMLDivElement | null>(null);
+  const karaokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
 
   const handleFileSelect = useCallback((f: File) => {
     if (lyricAudioUrl) URL.revokeObjectURL(lyricAudioUrl);
@@ -47,6 +59,8 @@ export default function LyricsPage() {
     setDuration(0);
     setIsPlaying(false);
     setEditedLines({});
+    setAdjustedLines(null);
+    setShowTimeline(false);
     const url = URL.createObjectURL(f);
     setLyricAudioUrl(url);
   }, [lyricAudioUrl]);
@@ -83,6 +97,7 @@ export default function LyricsPage() {
     setLyricTranscribing(true);
     setLyricError("");
     setLyricResult(null);
+    setAdjustedLines(null);
     try {
       const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals) as LyricTranscribeResult & { error?: string };
       setLyricResult(data);
@@ -130,13 +145,14 @@ export default function LyricsPage() {
     };
   }, [lyricAudioUrl]);
 
+  const allLines = adjustedLines ?? lyricResult?.lines ?? [];
+
   const activeLineIndex = (() => {
-    if (!lyricResult?.lines?.length) return -1;
-    const lines = lyricResult.lines;
-    for (let i = 0; i < lines.length; i++) {
-      if (currentTime < lines[i].start) return Math.max(0, i - 1);
+    if (!allLines.length) return -1;
+    for (let i = 0; i < allLines.length; i++) {
+      if (currentTime < allLines[i].start) return Math.max(0, i - 1);
     }
-    return lines.length - 1;
+    return allLines.length - 1;
   })();
 
   useEffect(() => {
@@ -171,7 +187,146 @@ export default function LyricsPage() {
     setEditingLine(null);
   };
 
-  const allLines = lyricResult?.lines ?? [];
+  const handleLinesUpdate = useCallback((updated: LyricLineDetailed[]) => {
+    setAdjustedLines(updated);
+  }, []);
+
+  const downloadFile = useCallback((path: string | undefined, fallbackName: string, fallbackContent: string) => {
+    if (path) {
+      const a = document.createElement("a");
+      a.href = `/api/tools/lyrics/download/${encodeURIComponent(path.split("/").pop() || fallbackName)}`;
+      a.download = fallbackName;
+      a.click();
+    } else {
+      const blob = new Blob([fallbackContent], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = fallbackName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  }, []);
+
+  const buildLyricsContent = useCallback((format: "txt" | "lrc" | "srt" | "json") => {
+    const lines = adjustedLines ?? lyricResult?.lines ?? [];
+    switch (format) {
+      case "txt":
+        return lines.map((l) => l.words.map((w) => w.word).join(" ")).join("\n");
+      case "lrc": {
+        let out = "";
+        for (const line of lines) {
+          const startM = Math.floor(line.start / 60);
+          const startS = line.start % 60;
+          const text = line.words.map((w) => w.word).join(" ");
+          if (text) out += `[${String(startM).padStart(2, "0")}:${startS.toFixed(2).padStart(5, "0")}] ${text}\n`;
+        }
+        return out;
+      }
+      case "srt": {
+        let out = "", idx = 1;
+        for (const line of lines) {
+          const text = line.words.map((w) => w.word).join(" ");
+          if (!text.trim()) continue;
+          out += `${idx}\n${fmtSrt(line.start)} --> ${fmtSrt(line.end)}\n${text}\n\n`;
+          idx++;
+        }
+        return out;
+      }
+      case "json":
+        return JSON.stringify({
+          language: lyricResult?.language ?? "",
+          lang_code: lyricResult?.lang_code ?? "",
+          duration_secs: lyricResult?.duration_secs ?? 0,
+          word_count: lyricResult?.word_count ?? 0,
+          lines: lines.map((ln) => ({
+            start: ln.start,
+            end: ln.end,
+            text: ln.words.map((w) => w.word).join(" "),
+            words: ln.words.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: (w as any).confidence ?? 0.8 })),
+          })),
+        }, null, 2);
+    }
+  }, [adjustedLines, lyricResult]);
+
+  const exportWithAdjusted = useCallback((format: string) => {
+    const content = buildLyricsContent(format as "txt" | "lrc" | "srt" | "json");
+    const ext = format;
+    const blob = new Blob([content], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `lyrics_adjusted.${ext}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [buildLyricsContent]);
+
+  // ── Video Export via MediaRecorder + Canvas ──
+  const exportVideo = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio || !allLines.length) return;
+    setVideoExporting(true);
+    setVideoProgress(0);
+    videoChunksRef.current = [];
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext("2d")!;
+    const stream = canvas.captureStream(30);
+    const audioCtx = new AudioContext();
+    const source = audioCtx.createMediaElementSource(audio);
+    const dest = audioCtx.createMediaStreamDestination();
+    source.connect(dest);
+    source.connect(audioCtx.destination);
+    const combined = new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+
+    const recorder = new MediaRecorder(combined, { mimeType: "video/webm;codecs=vp9" });
+    mediaRecorderRef.current = recorder;
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) videoChunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "karaoke.webm";
+      a.click();
+      URL.revokeObjectURL(url);
+      setVideoExporting(false);
+      setVideoProgress(100);
+      audioCtx.close();
+    };
+
+    recorder.start(100);
+    audio.currentTime = 0;
+    audio.play();
+
+    const totalDur = audio.duration || lyricResult?.duration_secs || 0;
+    const startTime = performance.now();
+    const renderFrame = () => {
+      if (!recorder || recorder.state === "inactive") return;
+      const elapsed = (performance.now() - startTime) / 1000;
+      setVideoProgress(Math.min(100, Math.round((elapsed / totalDur) * 100)));
+      drawKaraokeFrame(ctx, canvas.width, canvas.height, audio.currentTime, totalDur, allLines, editedLines);
+      if (elapsed >= totalDur) {
+        recorder.stop();
+        audio.pause();
+        return;
+      }
+      requestAnimationFrame(renderFrame);
+    };
+    requestAnimationFrame(renderFrame);
+  }, [allLines, editedLines, lyricResult]);
+
+  const cancelVideoExport = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    audioRef.current?.pause();
+    setVideoExporting(false);
+  }, []);
 
   return (
     <div className="max-w-3xl">
@@ -182,7 +337,7 @@ export default function LyricsPage() {
         </h2>
         <p className="text-xs text-daw-text-muted mt-1">
           Auto-transcribe lyrics with word-level timestamps. VAD strips silence, Whisper generates
-          word-aligned lyrics for karaoke sync. Click any word to jump to that moment.
+          word-aligned lyrics for karaoke sync. Edit, recalibrate, or export as video.
         </p>
       </div>
 
@@ -244,7 +399,6 @@ export default function LyricsPage() {
           <audio ref={audioRef} src={lyricAudioUrl} className="hidden" />
         )}
 
-        {/* Option: Demucs vocal isolation */}
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -297,7 +451,7 @@ export default function LyricsPage() {
               className="space-y-3"
             >
               {/* Header + download */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <Badge variant="green">{allLines.length} lines</Badge>
                   <span className="text-xs text-daw-text-dim">
@@ -308,74 +462,86 @@ export default function LyricsPage() {
                       {lyricResult.language}
                     </span>
                   )}
+                  {adjustedLines && (
+                    <Badge variant="accent" className="text-[9px]">edited</Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Export dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowExportMenu(!showExportMenu)}
+                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-daw-border text-daw-text-dim hover:text-daw-text transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      Export
+                    </button>
+                    {showExportMenu && (
+                      <div
+                        className="absolute right-0 top-full mt-1 z-20 bg-daw-surface-2 border border-daw-border rounded-lg shadow-lg p-1.5 space-y-0.5 min-w-[140px]"
+                        onMouseLeave={() => setShowExportMenu(false)}
+                      >
+                        {(["txt", "lrc", "srt", "json"] as const).map((fmt) => (
+                          <button
+                            key={fmt}
+                            onClick={() => {
+                              if (adjustedLines) {
+                                exportWithAdjusted(fmt);
+                              } else {
+                                downloadFile(
+                                  lyricResult[`${fmt}_path` as keyof typeof lyricResult] as string | undefined,
+                                  `lyrics.${fmt}`,
+                                  buildLyricsContent(fmt),
+                                );
+                              }
+                              setShowExportMenu(false);
+                            }}
+                            className="w-full text-left text-[10px] px-2 py-1 rounded text-daw-text-dim hover:text-daw-text hover:bg-daw-surface-3 transition-colors"
+                          >
+                            .{fmt} {adjustedLines ? "(edited)" : ""}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Video export */}
+                  {videoExporting ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={cancelVideoExport}
+                        className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-red-400/30 text-red-400 hover:bg-red-400/10 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <span className="text-[10px] text-daw-text-dim tabular-nums w-8 text-right">{videoProgress}%</span>
+                      <div className="w-16 h-1 bg-daw-surface-2 rounded-full overflow-hidden">
+                        <div className="h-full bg-cyan-400 rounded-full transition-all" style={{ width: `${videoProgress}%` }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={exportVideo}
+                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                    >
+                      <Video className="w-3 h-3" />
+                      Export Video
+                    </button>
+                  )}
+
+                  {/* Timeline toggle */}
                   <button
-                    onClick={() => {
-                      if (lyricResult.txt_path) {
-                        const a = document.createElement("a");
-                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.txt_path.split("/").pop() || "lyrics.txt")}`;
-                        a.download = "lyrics.txt";
-                        a.click();
-                      } else {
-                        const text = allLines
-                          .map((line) => line.words.map((w) => w.word).join(" "))
-                          .join("\n");
-                        const blob = new Blob([text], { type: "text/plain" });
-                        const a = document.createElement("a");
-                        a.href = URL.createObjectURL(blob);
-                        a.download = "lyrics.txt";
-                        a.click();
-                        URL.revokeObjectURL(a.href);
-                      }
-                    }}
-                    className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
+                    onClick={() => setShowTimeline(!showTimeline)}
+                    className={cn(
+                      "flex items-center gap-1 text-[10px] px-2 py-1 rounded border transition-colors",
+                      showTimeline
+                        ? "border-violet-400/50 text-violet-300 bg-violet-400/10"
+                        : "border-daw-border text-daw-text-dim hover:text-daw-text"
+                    )}
                   >
-                    <Download className="w-3 h-3" />
-                    Save .txt
+                    <Film className="w-3 h-3" />
+                    Timeline
                   </button>
-                  {lyricResult.lrc_path && (
-                    <button
-                      onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.lrc_path.split("/").pop() || "lyrics.lrc")}`;
-                        a.download = "lyrics.lrc";
-                        a.click();
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
-                    >
-                      <Download className="w-3 h-3" />
-                      Save .lrc
-                    </button>
-                  )}
-                  {lyricResult.srt_path && (
-                    <button
-                      onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.srt_path.split("/").pop() || "lyrics.srt")}`;
-                        a.download = "lyrics.srt";
-                        a.click();
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
-                    >
-                      <Download className="w-3 h-3" />
-                      Save .srt
-                    </button>
-                  )}
-                  {lyricResult.json_path && (
-                    <button
-                      onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = `/api/tools/lyrics/download/${encodeURIComponent(lyricResult.json_path.split("/").pop() || "lyrics.json")}`;
-                        a.download = "lyrics.json";
-                        a.click();
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-daw-text-dim hover:text-daw-text transition-colors"
-                    >
-                      <Download className="w-3 h-3" />
-                      Save .json
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -418,6 +584,30 @@ export default function LyricsPage() {
                 />
                 <Maximize2 className="w-3.5 h-3.5 text-daw-text-dim" />
               </div>
+
+              {/* Timeline Editor */}
+              <AnimatePresence>
+                {showTimeline && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-3 rounded-xl border border-violet-400/20 bg-daw-surface-2/30">
+                      <LyricTimelineEditor
+                        lines={allLines}
+                        currentTime={currentTime}
+                        isPlaying={isPlaying}
+                        duration={duration || lyricResult.duration_secs || 0}
+                        onLinesUpdate={handleLinesUpdate}
+                        onSeek={seekTo}
+                        canRecalibrate={isPlaying && lyricAudioUrl !== ""}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Karaoke word viewer */}
               <div
@@ -523,4 +713,106 @@ export default function LyricsPage() {
       </div>
     </div>
   );
+}
+
+function fmtSrt(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+function drawKaraokeFrame(
+  ctx: CanvasRenderingContext2D,
+  w: number, h: number,
+  currentTime: number,
+  totalDur: number,
+  lines: LyricLineDetailed[],
+  editedLines: Record<number, string>,
+) {
+  ctx.fillStyle = "#0f0f1a";
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = "#22d3ee20";
+  ctx.fillRect(0, 0, w, 60);
+  ctx.strokeStyle = "#22d3ee40";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, 60);
+  ctx.lineTo(w, 60);
+  ctx.stroke();
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 18px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Karaoke Export", w / 2, 38);
+
+  const progress = totalDur > 0 ? currentTime / totalDur : 0;
+  ctx.fillStyle = "#22d3ee";
+  ctx.fillRect(0, 58, w * progress, 2);
+
+  if (lines.length === 0) return;
+
+  const maxLines = 10;
+  let activeIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (currentTime >= lines[i].start && currentTime < lines[i].end) {
+      activeIdx = i;
+      break;
+    }
+    if (currentTime < lines[i].start) {
+      activeIdx = Math.max(0, i - 1);
+      break;
+    }
+  }
+  if (activeIdx < 0) activeIdx = lines.length - 1;
+
+  const startIdx = Math.max(0, Math.min(activeIdx - 2, lines.length - maxLines));
+  const visibleLines = lines.slice(startIdx, startIdx + maxLines);
+  const lineHeight = 42;
+  const topY = 100;
+
+  visibleLines.forEach((line, vi) => {
+    const actualIdx = startIdx + vi;
+    const y = topY + vi * lineHeight;
+
+    if (actualIdx === activeIdx) {
+      const lineDur = line.end - line.start || 0.01;
+      const frac = Math.min(1, (currentTime - line.start) / lineDur);
+
+      ctx.fillStyle = "#22d3ee20";
+      ctx.fillRect(40, y - 4, w - 80, lineHeight - 4);
+
+      const text = editedLines[actualIdx] ?? line.words.map((w) => w.word).join(" ");
+      ctx.textAlign = "center";
+
+      const words = line.words;
+      let wordActiveIdx = -1;
+      for (let wi = 0; wi < words.length; wi++) {
+        if (currentTime >= words[wi].start && currentTime < words[wi].end) {
+          wordActiveIdx = wi;
+          break;
+        }
+      }
+
+      ctx.font = "bold 28px Inter, sans-serif";
+      if (wordActiveIdx >= 0) {
+        const before = words.slice(0, wordActiveIdx).map((w) => w.word).join(" ");
+        const active = words[wordActiveIdx].word;
+        const after = words.slice(wordActiveIdx + 1).map((w) => w.word).join(" ");
+        ctx.fillStyle = "#22d3ee";
+        ctx.fillText(`${before} ${active} ${after}`, w / 2, y + 22);
+      } else {
+        ctx.fillStyle = "#22d3ee";
+        ctx.fillText(text, w / 2, y + 22);
+      }
+    } else {
+      const text = editedLines[actualIdx] ?? line.words.map((w) => w.word).join(" ");
+      ctx.textAlign = "center";
+      ctx.font = "20px Inter, sans-serif";
+      ctx.fillStyle = actualIdx < activeIdx ? "#6b7280" : "#374151";
+      ctx.fillText(text, w / 2, y + 18);
+    }
+  });
 }
