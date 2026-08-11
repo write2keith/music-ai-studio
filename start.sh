@@ -7,7 +7,9 @@ echo ""
 
 # ── Backend ──────────────────────────────────────────
 echo "[backend] Installing dependencies..."
-pip install --break-system-packages -q -r "$ROOT/backend/requirements.txt"
+cd "$ROOT/backend"
+# Try --break-system-packages (newer pip), fall back if unsupported
+pip install -q -r requirements.txt --break-system-packages 2>/dev/null || pip install -q -r requirements.txt
 
 echo "[backend] Starting on port 8000..."
 cd "$ROOT/backend"
