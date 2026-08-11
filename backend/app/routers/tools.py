@@ -1301,6 +1301,7 @@ async def vocal_prep_status(job_id: str):
 
 class VocalRemoveResponse(BaseModel):
     ok: bool = True
+    job_id: str = ""
     instrumental_url: str = ""
     vocals_url: str = ""
     filename: str = ""
@@ -1327,6 +1328,7 @@ async def vocal_remove(file: UploadFile = File(...)):
 
     return VocalRemoveResponse(
         ok=True,
+        job_id=job.id,
         instrumental_url=f"/api/tools/vocal-remove/{job.id}/instrumental",
         vocals_url=f"/api/tools/vocal-remove/{job.id}/vocals",
         filename=f"instrumental_{job.id}.wav",

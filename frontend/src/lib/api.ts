@@ -495,6 +495,7 @@ interface VocalPrepResult {
 
 export interface VocalRemoveResult {
   ok: boolean;
+  job_id: string;
   instrumental_url: string;
   vocals_url: string;
   filename: string;
