@@ -17,6 +17,7 @@ import {
   Video,
   Film,
   Check,
+  Edit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,9 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import type { LyricTranscribeResult, LyricLineDetailed } from "@/lib/api";
 import { LyricTimelineEditor } from "@/components/studio/LyricTimelineEditor";
+import FullscreenLyrics from "@/components/studio/FullscreenLyrics";
+import LyricsEditorModal from "@/components/studio/LyricsEditorModal";
+import { useProgress } from "@/hooks/use-progress";
 
 export default function LyricsPage() {
   const [lyricFile, setLyricFile] = useState<File | null>(null);
@@ -44,6 +48,10 @@ export default function LyricsPage() {
   const [videoExporting, setVideoExporting] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
+  const [showLrcEditor, setShowLrcEditor] = useState(false);
+  const [progressSession, setProgressSession] = useState("");
+  const progress = useProgress(progressSession);
   const rafRef = useRef<number>(0);
   const linesContainerRef = useRef<HTMLDivElement | null>(null);
   const karaokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -98,8 +106,10 @@ export default function LyricsPage() {
     setLyricError("");
     setLyricResult(null);
     setAdjustedLines(null);
+    const session = `lyric_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setProgressSession(session);
     try {
-      const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals) as LyricTranscribeResult & { error?: string };
+      const data = await api.tools.lyricTranscribe(lyricFile, "auto", isolateVocals, progressSession) as LyricTranscribeResult & { error?: string };
       setLyricResult(data);
       if (data.status === "failed") {
         setLyricError(data.error || "Transcription completed with errors");
@@ -562,8 +572,38 @@ export default function LyricsPage() {
                       : "text-daw-text hover:text-cyan-400 hover:bg-cyan-400/10"
                   )}
                 >
-                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                </button>
+                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                  </button>
+
+                {/* Transcribing progress */}
+                {lyricTranscribing && progress && (
+                  <div className="flex items-center gap-2 text-[10px] text-daw-text-dim">
+                    <span className="text-cyan-400">{progress.stage === "demucs" ? "Isolating vocals" : progress.stage === "vad" ? "Detecting speech" : progress.stage === "whisper" ? "Transcribing" : progress.stage === "grouping" ? "Formatting" : progress.stage}</span>
+                    <div className="w-20 h-1 bg-daw-surface-2 rounded-full overflow-hidden">
+                      <div className="h-full bg-cyan-400 rounded-full transition-all duration-300" style={{ width: `${progress.progress}%` }} />
+                    </div>
+                    <span>{progress.progress}%</span>
+                  </div>
+                )}
+
+                {/* Mode buttons */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowFullscreen(true)}
+                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 transition-colors"
+                  >
+                    <Maximize2 className="w-3 h-3" />
+                    Fullscreen
+                  </button>
+                  <button
+                    onClick={() => setShowLrcEditor(true)}
+                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-violet-400/30 text-violet-300 hover:bg-violet-400/10 transition-colors"
+                  >
+                    <Edit className="w-3 h-3" />
+                    Edit LRC
+                  </button>
+                </div>
+
                 <button
                   onClick={() => skipTime(5)}
                   className="p-1.5 rounded text-daw-text-dim hover:text-daw-text hover:bg-daw-surface-3 transition-colors"
@@ -710,9 +750,62 @@ export default function LyricsPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Fullscreen karaoke overlay */}
+        {showFullscreen && (
+          <FullscreenLyrics
+          lines={allLines}
+          currentTime={currentTime}
+          duration={duration || lyricResult?.duration_secs || 0}
+          isPlaying={isPlaying}
+          title={lyricFile?.name || "Karaoke"}
+          artist={lyricResult?.language || "Lyrics"}
+          onTogglePlay={togglePlay}
+          onSeek={seekTo}
+          onExit={() => setShowFullscreen(false)}
+        />
+        )}
+
+        {/* LRC editor modal */}
+        <LyricsEditorModal
+          isOpen={showLrcEditor}
+          initialLrc={buildLyricsContent("lrc")}
+          title={lyricFile?.name || "Karaoke"}
+          artist={lyricResult?.language || "Lyrics"}
+          onSave={async (lrcText: string) => {
+            const parsed = parseLrcToLines(lrcText);
+            if (parsed.length > 0) {
+              setAdjustedLines(parsed);
+            }
+            setShowLrcEditor(false);
+          }}
+          onClose={() => setShowLrcEditor(false)}
+        />
       </div>
     </div>
   );
+}
+
+function parseLrcToLines(lrc: string): LyricLineDetailed[] {
+  const lines: LyricLineDetailed[] = [];
+  const regex = /^\[(\d+):(\d+)\.(\d+)\]\s*(.+)$/;
+  for (const raw of lrc.split("\n")) {
+    const match = raw.trim().match(regex);
+    if (!match) continue;
+    const mins = parseInt(match[1]);
+    const secs = parseInt(match[2]);
+    const frac = parseInt(match[3]);
+    const text = match[4].trim();
+    const start = mins * 60 + secs + frac / 100;
+    const words = text.split(/\s+/).map((word, i) => ({
+      word,
+      start: start + i * 0.3,
+      end: start + (i + 1) * 0.3 + 0.2,
+    }));
+    const end = words.length > 0 ? words[words.length - 1].end : start + 2;
+    lines.push({ start, end, words });
+  }
+  return lines;
 }
 
 function fmtSrt(seconds: number): string {

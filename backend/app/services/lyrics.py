@@ -132,15 +132,19 @@ def _isolate_vocals_demucs(audio_path: str) -> str:
         return audio_path
 
 
-def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: bool = False) -> dict:
+def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: bool = False, progress_callback=None) -> dict:
     """Full pipeline: optional Demucs isolation → VAD → faster-whisper large-v3 → structured output."""
     import librosa
 
     # Stage 0: Optional Demucs vocal isolation
     transcribe_path = audio_path
     if isolate_vocals:
+        if progress_callback:
+            progress_callback("demucs", 0)
         logger.info("Isolating vocals with Demucs before transcription...")
         transcribe_path = _isolate_vocals_demucs(audio_path)
+        if progress_callback:
+            progress_callback("demucs", 30)
 
     data, sr = librosa.load(str(transcribe_path), sr=None, mono=True)
     data = data.astype(np.float32)
@@ -150,6 +154,8 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
     duration = len(data) / sr
 
     # Stage 1: VAD — try Silero first, fallback to energy
+    if progress_callback:
+        progress_callback("vad", 35)
     speech_segments = _silero_vad(transcribe_path)
     if not speech_segments:
         speech_segments = _energy_vad(data, sr, threshold=0.02, min_dur=0.5)
@@ -160,6 +166,8 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
     detected_lang = "en"
     model_info = ""
 
+    if progress_callback:
+        progress_callback("whisper", 45)
     model, model_info = _get_whisper_model()
 
     for seg_idx, (seg_start, seg_end) in enumerate(speech_segments):
@@ -183,6 +191,9 @@ def transcribe_lyrics(audio_path: str, language: str = "auto", isolate_vocals: b
         logger.info("VAD found no speech, transcribing full file")
         all_words = _whisper_transcribe(data, sr, language, model)
         detected_lang = all_words[0].get("language", "en") if all_words else "en"
+
+    if progress_callback:
+        progress_callback("grouping", 80)
 
     # Stage 3: Music-aware line grouping
     lines = _group_words_into_lines(all_words)

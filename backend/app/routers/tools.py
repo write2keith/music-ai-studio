@@ -1738,6 +1738,7 @@ async def lyric_transcribe(
     file: UploadFile = File(...),
     language: str = Form(default="auto"),
     isolate_vocals: bool = Form(default=False),
+    progress_session: str = Form(default=""),
 ):
     output_dir = Path(settings.UPLOAD_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1748,9 +1749,41 @@ async def lyric_transcribe(
     save_path.write_bytes(content)
 
     from ..services.lyrics import transcribe_lyrics
-    result = await _run_blocking(
-        transcribe_lyrics, str(save_path), language=language, isolate_vocals=isolate_vocals,
-    )
+    import threading
+
+    progress_callback = None
+    if progress_session:
+        from ..ws import manager
+        def _on_progress(stage: str, pct: int):
+            manager.broadcast_threadsafe({
+                "type": "progress_update",
+                "data": {
+                    "session": progress_session,
+                    "action": "lyric_transcribe",
+                    "stage": stage,
+                    "progress": pct,
+                    "status": "PROCESSING",
+                },
+            })
+
+        def _transcribe_wrapper():
+            if _on_progress:
+                _on_progress("vad", 10)
+            result_val = transcribe_lyrics(
+                str(save_path), language=language,
+                isolate_vocals=isolate_vocals,
+                progress_callback=_on_progress if _on_progress else None,
+            )
+            if _on_progress:
+                _on_progress("done", 100)
+            return result_val
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _transcribe_wrapper)
+    else:
+        result = await _run_blocking(
+            transcribe_lyrics, str(save_path), language=language, isolate_vocals=isolate_vocals,
+        )
 
     return LyricTranscribeResponse(
         ok=True,
@@ -2609,3 +2642,53 @@ async def dereverb(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Progress WebSocket ─────────────────────────────────────────
+
+
+@router.websocket("/ws/progress/{session}")
+async def progress_ws(ws: WebSocket, session: str):
+    from ..ws import manager
+    manager.bind_loop(asyncio.get_event_loop())
+    await manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except Exception:
+        manager.disconnect(ws)
+
+
+# ── Image Search ───────────────────────────────────────────────
+
+
+class ImageSearchResponse(BaseModel):
+    ok: bool = True
+    artist_image: str = ""
+    song_image: str = ""
+
+
+@router.get("/image-search", response_model=ImageSearchResponse)
+async def image_search(
+    artist: str = Query(default=""),
+    title: str = Query(default=""),
+):
+    from ..services.image_provider import get_image_urls
+    result = get_image_urls(artist, title)
+    return ImageSearchResponse(
+        ok=True,
+        artist_image=result.get("artist_image", ""),
+        song_image=result.get("song_image", ""),
+    )
+
+
+@router.get("/image-cache/{filename:path}")
+async def serve_cached_image(filename: str):
+    from fastapi.responses import FileResponse
+    from ..services.image_provider import IMAGE_CACHE_DIR
+    file_path = Path(IMAGE_CACHE_DIR) / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    import mimetypes
+    mime, _ = mimetypes.guess_type(str(file_path))
+    return FileResponse(str(file_path), media_type=mime or "image/jpeg")

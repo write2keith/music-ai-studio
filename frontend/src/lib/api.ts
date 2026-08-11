@@ -293,11 +293,12 @@ export const api = {
       fd.append("transient_preservation", String(transientPreservation));
       return upload<PitchTempoResult>("/api/tools/pitch-tempo", fd);
     },
-    lyricTranscribe: (file: File, language: string = "auto", isolateVocals: boolean = false) => {
+    lyricTranscribe: (file: File, language: string = "auto", isolateVocals: boolean = false, progressSession: string = "") => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("language", language);
       fd.append("isolate_vocals", String(isolateVocals));
+      if (progressSession) fd.append("progress_session", progressSession);
       return upload<LyricTranscribeResult>("/api/tools/lyric-transcribe", fd);
     },
     guitarTab: (file: File, tuningKey: string = "standard", separateFirst: boolean = false, analysisMethod: string = "advanced") => {
@@ -377,6 +378,12 @@ export const api = {
       fd.append("method", method);
       return upload<DereverbResult>("/api/tools/dereverb", fd);
     },
+    searchImages: (artist: string, title: string = "") =>
+      request<ImageSearchResult>(`/api/tools/image-search?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`),
+  },
+  connectProgress: (session: string) => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return new WebSocket(`${protocol}//${window.location.host}/api/tools/ws/progress/${session}`);
   },
 };
 
@@ -640,4 +647,10 @@ export interface TabSearchResult {
   ok: boolean;
   results: { id: string; title: string; artist: string; source: string; url: string; has_tab: boolean }[];
   source: string;
+}
+
+export interface ImageSearchResult {
+  ok: boolean;
+  artist_image: string;
+  song_image: string;
 }
