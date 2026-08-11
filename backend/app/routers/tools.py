@@ -96,13 +96,17 @@ async def download_youtube(body: YouTubeRequest):
     output_template = str(output_dir / f"yt_{file_id}.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
         "socket_timeout": 30,
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "m4a",
+        }],
     }
 
     try:
@@ -119,7 +123,10 @@ async def download_youtube(body: YouTubeRequest):
         if not candidates:
             raise HTTPException(status_code=500, detail="Download produced no file")
 
-        dl_path = candidates[0]
+        # Prefer audio formats over video if multiple files exist
+        audio_exts = {".m4a", ".webm", ".mp3", ".opus", ".wav", ".aac", ".ogg", ".flac"}
+        audio_candidates = [c for c in candidates if c.suffix.lower() in audio_exts]
+        dl_path = audio_candidates[0] if audio_candidates else candidates[0]
         dl_ext = dl_path.suffix
 
         safe_title = re.sub(r'[^\w\-]', '_', title)
