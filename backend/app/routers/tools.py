@@ -2553,27 +2553,26 @@ async def lead_back_split(
 
         # Build mixed output based on mode
         stems_dir = Path(stem_result["stems_dir"])
+        lb_stem_dir = Path(result["lead_path"]).parent.name  # e.g., "leadback_vocals"
         mixed_url = ""
 
         if output_mode == "remove_lead":
-            # Mix: backing + instrumental + original non-vocal stems
-            import scipy.io.wavfile as wav
+            import scipy.io.wavfile as _wav
             import numpy as np
             backing_v = Path(result["backing_path"])
             inst_v = Path(result["instrumental_path"])
-            sr, bdata = wav.read(str(backing_v))
+            sr, bdata = _wav.read(str(backing_v))
             bdata = bdata.astype(np.float32)
             if bdata.ndim > 1: bdata = bdata.mean(axis=1)
-            _, idata = wav.read(str(inst_v))
+            _, idata = _wav.read(str(inst_v))
             idata = idata.astype(np.float32)
             if idata.ndim > 1: idata = idata.mean(axis=1)
             mn = min(len(bdata), len(idata))
             mixed = bdata[:mn] + idata[:mn]
-            # Add original instrument stems
             for stem_key in ["bass", "drums", "other"]:
                 sp = stem_result["stems"].get(stem_key)
                 if sp:
-                    _, sdata = wav.read(str(Path(sp)))
+                    _, sdata = _wav.read(str(Path(sp)))
                     sdata = sdata.astype(np.float32)
                     if sdata.ndim > 1: sdata = sdata.mean(axis=1)
                     mn2 = min(len(mixed), len(sdata))
@@ -2582,17 +2581,17 @@ async def lead_back_split(
             if peak > 0: mixed = mixed / peak * 0.95
             mixed = (mixed * 32767).astype(np.int16)
             mix_path = stems_dir / "no_lead.wav"
-            wav.write(str(mix_path), sr, mixed)
+            _wav.write(str(mix_path), sr, mixed)
             mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
         elif output_mode == "remove_backing":
-            import scipy.io.wavfile as wav
+            import scipy.io.wavfile as _wav
             import numpy as np
             lead_v = Path(result["lead_path"])
             inst_v = Path(result["instrumental_path"])
-            sr, ldata = wav.read(str(lead_v))
+            sr, ldata = _wav.read(str(lead_v))
             ldata = ldata.astype(np.float32)
             if ldata.ndim > 1: ldata = ldata.mean(axis=1)
-            _, idata = wav.read(str(inst_v))
+            _, idata = _wav.read(str(inst_v))
             idata = idata.astype(np.float32)
             if idata.ndim > 1: idata = idata.mean(axis=1)
             mn = min(len(ldata), len(idata))
@@ -2600,7 +2599,7 @@ async def lead_back_split(
             for stem_key in ["bass", "drums", "other"]:
                 sp = stem_result["stems"].get(stem_key)
                 if sp:
-                    _, sdata = wav.read(str(Path(sp)))
+                    _, sdata = _wav.read(str(Path(sp)))
                     sdata = sdata.astype(np.float32)
                     if sdata.ndim > 1: sdata = sdata.mean(axis=1)
                     mn2 = min(len(mixed), len(sdata))
@@ -2609,18 +2608,18 @@ async def lead_back_split(
             if peak > 0: mixed = mixed / peak * 0.95
             mixed = (mixed * 32767).astype(np.int16)
             mix_path = stems_dir / "no_backing.wav"
-            wav.write(str(mix_path), sr, mixed)
+            _wav.write(str(mix_path), sr, mixed)
             mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
         elif output_mode == "lead_only":
-            mixed_url = f"/api/audio/stems/htdemucs/{Path(result['lead_path']).parent.name}/{Path(result['lead_path']).name}"
+            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(result['lead_path']).name}"
         elif output_mode == "backing_only":
-            mixed_url = f"/api/audio/stems/htdemucs/{Path(result['backing_path']).parent.name}/{Path(result['backing_path']).name}"
+            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(result['backing_path']).name}"
 
         return LeadBackResponse(
             ok=True,
-            lead_url=f"/api/audio/stems/htdemucs/{Path(result['lead_path']).parent.name}/{Path(result['lead_path']).name}",
-            backing_url=f"/api/audio/stems/htdemucs/{Path(result['backing_path']).parent.name}/{Path(result['backing_path']).name}",
-            instrumental_url=f"/api/audio/stems/htdemucs/{Path(result['instrumental_path']).parent.name}/{Path(result['instrumental_path']).name}",
+            lead_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['lead_path']).name}",
+            backing_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['backing_path']).name}",
+            instrumental_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['instrumental_path']).name}",
             mixed_url=mixed_url,
             lead_ratio=result["lead_ratio"],
             duration=result["duration"],
