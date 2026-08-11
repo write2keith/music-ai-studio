@@ -2552,6 +2552,7 @@ async def lead_back_split(
         )
 
         # Build mixed output based on mode
+        from ..services.separator import wav_to_mp3 as _to_mp3
         stems_dir = Path(stem_result["stems_dir"])
         lb_stem_dir = Path(result["lead_path"]).parent.name  # e.g., "leadback_vocals"
         mixed_url = ""
@@ -2564,11 +2565,11 @@ async def lead_back_split(
             if output_mode == "remove_lead":
                 prim = result["backing_path"]
                 sec = result["instrumental_path"]
-                out_name = "no_lead.wav"
+                out_name = "no_lead"
             else:
                 prim = result["lead_path"]
                 sec = result["instrumental_path"]
-                out_name = "no_backing.wav"
+                out_name = "no_backing"
 
             pdata, sr = sf.read(prim)
             pdata = pdata.astype(np.float32)
@@ -2591,19 +2592,26 @@ async def lead_back_split(
             peak = np.max(np.abs(mixed))
             if peak > 0: mixed = mixed / peak * 0.95
             mixed = (mixed * 32767).astype(np.int16)
-            mix_path = stems_dir / out_name
+            mix_path = stems_dir / f"{out_name}.wav"
             _wav.write(str(mix_path), sr, mixed)
-            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
+            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{Path(_to_mp3(str(mix_path))).name}"
         elif output_mode == "lead_only":
-            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(result['lead_path']).name}"
+            lead_mp3 = await _run_blocking(_to_mp3, result["lead_path"])
+            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}"
         elif output_mode == "backing_only":
-            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(result['backing_path']).name}"
+            back_mp3 = await _run_blocking(_to_mp3, result["backing_path"])
+            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}"
+
+        # Convert all output stems to MP3
+        lead_mp3 = await _run_blocking(_to_mp3, result["lead_path"])
+        back_mp3 = await _run_blocking(_to_mp3, result["backing_path"])
+        inst_mp3 = await _run_blocking(_to_mp3, result["instrumental_path"])
 
         return LeadBackResponse(
             ok=True,
-            lead_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['lead_path']).name}",
-            backing_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['backing_path']).name}",
-            instrumental_url=f"/api/audio/stems//{lb_stem_dir}/{Path(result['instrumental_path']).name}",
+            lead_url=f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}",
+            backing_url=f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}",
+            instrumental_url=f"/api/audio/stems//{lb_stem_dir}/{Path(inst_mp3).name}",
             mixed_url=mixed_url,
             lead_ratio=result["lead_ratio"],
             duration=result["duration"],

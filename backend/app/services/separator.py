@@ -150,6 +150,23 @@ def _make_mp3s(stems: dict) -> dict:
     return mp3_stems
 
 
+def wav_to_mp3(wav_path: str, bitrate: str = "192k") -> str:
+    """Convert a WAV file to MP3 using ffmpeg. Falls back to WAV path on failure."""
+    import subprocess
+    mp3_path = Path(wav_path).with_suffix(".mp3")
+    if mp3_path.exists():
+        return str(mp3_path)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(wav_path), "-b:a", bitrate, str(mp3_path)],
+            capture_output=True, check=True, timeout=120,
+        )
+        return str(mp3_path)
+    except Exception as e:
+        logger.warning(f"MP3 conversion failed for {wav_path}: {e}")
+        return str(wav_path)
+
+
 def separate(audio_path: str, model_name: str = "htdemucs") -> dict:
     if _use_cloud():
         if not _check_cloud():
