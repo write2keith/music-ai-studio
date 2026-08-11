@@ -2516,9 +2516,11 @@ class LeadBackResponse(BaseModel):
     lead_url: str = ""
     backing_url: str = ""
     instrumental_url: str = ""
+    mixed_url: str = ""
     lead_ratio: float = 0.0
     duration: float = 0.0
     method: str = ""
+    output_mode: str = "split"
 
 
 @router.post("/lead-back-split", response_model=LeadBackResponse)
@@ -2527,6 +2529,7 @@ async def lead_back_split(
     method: str = Form(default="auto"),
     lyrics_text: str = Form(default=""),
     stereo_aware: bool = Form(default=True),
+    output_mode: str = Form(default="split"),
 ):
     try:
         upload_dir = Path(settings.UPLOAD_DIR)
@@ -2536,7 +2539,6 @@ async def lead_back_split(
         content = await _read_upload(file)
         upload_path.write_bytes(content)
 
-        # First separate vocals
         from ..services.separator import separate as separate_stems
         stem_result = await _run_blocking(separate_stems, str(upload_path), model_name="htdemucs")
         vocals_path = stem_result["stems"].get("vocals")
@@ -2549,14 +2551,81 @@ async def lead_back_split(
             method=method, lyrics_text=lyrics_text, stereo_aware=stereo_aware,
         )
 
+        # Build mixed output based on mode
+        stems_dir = Path(stem_result["stems_dir"])
+        mixed_url = ""
+
+        if output_mode == "remove_lead":
+            # Mix: backing + instrumental + original non-vocal stems
+            import scipy.io.wavfile as wav
+            import numpy as np
+            backing_v = Path(result["backing_path"])
+            inst_v = Path(result["instrumental_path"])
+            sr, bdata = wav.read(str(backing_v))
+            bdata = bdata.astype(np.float32)
+            if bdata.ndim > 1: bdata = bdata.mean(axis=1)
+            _, idata = wav.read(str(inst_v))
+            idata = idata.astype(np.float32)
+            if idata.ndim > 1: idata = idata.mean(axis=1)
+            mn = min(len(bdata), len(idata))
+            mixed = bdata[:mn] + idata[:mn]
+            # Add original instrument stems
+            for stem_key in ["bass", "drums", "other"]:
+                sp = stem_result["stems"].get(stem_key)
+                if sp:
+                    _, sdata = wav.read(str(Path(sp)))
+                    sdata = sdata.astype(np.float32)
+                    if sdata.ndim > 1: sdata = sdata.mean(axis=1)
+                    mn2 = min(len(mixed), len(sdata))
+                    mixed[:mn2] += sdata[:mn2]
+            peak = np.max(np.abs(mixed))
+            if peak > 0: mixed = mixed / peak * 0.95
+            mixed = (mixed * 32767).astype(np.int16)
+            mix_path = stems_dir / "no_lead.wav"
+            wav.write(str(mix_path), sr, mixed)
+            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
+        elif output_mode == "remove_backing":
+            import scipy.io.wavfile as wav
+            import numpy as np
+            lead_v = Path(result["lead_path"])
+            inst_v = Path(result["instrumental_path"])
+            sr, ldata = wav.read(str(lead_v))
+            ldata = ldata.astype(np.float32)
+            if ldata.ndim > 1: ldata = ldata.mean(axis=1)
+            _, idata = wav.read(str(inst_v))
+            idata = idata.astype(np.float32)
+            if idata.ndim > 1: idata = idata.mean(axis=1)
+            mn = min(len(ldata), len(idata))
+            mixed = ldata[:mn] + idata[:mn]
+            for stem_key in ["bass", "drums", "other"]:
+                sp = stem_result["stems"].get(stem_key)
+                if sp:
+                    _, sdata = wav.read(str(Path(sp)))
+                    sdata = sdata.astype(np.float32)
+                    if sdata.ndim > 1: sdata = sdata.mean(axis=1)
+                    mn2 = min(len(mixed), len(sdata))
+                    mixed[:mn2] += sdata[:mn2]
+            peak = np.max(np.abs(mixed))
+            if peak > 0: mixed = mixed / peak * 0.95
+            mixed = (mixed * 32767).astype(np.int16)
+            mix_path = stems_dir / "no_backing.wav"
+            wav.write(str(mix_path), sr, mixed)
+            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{mix_path.name}"
+        elif output_mode == "lead_only":
+            mixed_url = f"/api/audio/stems/htdemucs/{Path(result['lead_path']).parent.name}/{Path(result['lead_path']).name}"
+        elif output_mode == "backing_only":
+            mixed_url = f"/api/audio/stems/htdemucs/{Path(result['backing_path']).parent.name}/{Path(result['backing_path']).name}"
+
         return LeadBackResponse(
             ok=True,
             lead_url=f"/api/audio/stems/htdemucs/{Path(result['lead_path']).parent.name}/{Path(result['lead_path']).name}",
             backing_url=f"/api/audio/stems/htdemucs/{Path(result['backing_path']).parent.name}/{Path(result['backing_path']).name}",
             instrumental_url=f"/api/audio/stems/htdemucs/{Path(result['instrumental_path']).parent.name}/{Path(result['instrumental_path']).name}",
+            mixed_url=mixed_url,
             lead_ratio=result["lead_ratio"],
             duration=result["duration"],
             method=result.get("method", method),
+            output_mode=output_mode,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Download, Loader2, AlertCircle, Users, FileAudio,
   Upload, Check, Play, Pause, Mic, Music,
-  Cpu, Brain, Type, Radio,
+  Cpu, Brain, Type, Radio, SlidersHorizontal,
 } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,15 @@ export default function LeadBackSplitPage() {
   const [method, setMethod] = useState<"auto" | "energy" | "polyphony" | "hybrid">("auto");
   const [lyricsText, setLyricsText] = useState("");
   const [stereoAware, setStereoAware] = useState(true);
+  const [outputMode, setOutputMode] = useState<"split" | "remove_lead" | "remove_backing" | "lead_only" | "backing_only">("split");
+
+  const OUTPUT_MODES = [
+    { k: "split" as const, label: "Split All", desc: "All 3 stems separate" },
+    { k: "remove_lead" as const, label: "Remove Lead", desc: "Everything except main vocals" },
+    { k: "remove_backing" as const, label: "Remove Backing", desc: "Everything except backing vocals" },
+    { k: "lead_only" as const, label: "Lead Only", desc: "Main vocals only" },
+    { k: "backing_only" as const, label: "Backing Only", desc: "Backing vocals only" },
+  ];
 
   useEffect(() => {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
@@ -74,7 +83,7 @@ export default function LeadBackSplitPage() {
     setError("");
     setResult(null);
     try {
-      const data = await api.tools.leadBackSplit(file, method, lyricsText, stereoAware);
+      const data = await api.tools.leadBackSplit(file, method, lyricsText, stereoAware, outputMode);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -175,6 +184,30 @@ export default function LeadBackSplitPage() {
           </div>
         </div>
 
+        {/* Output Mode Selector */}
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5 flex items-center gap-1">
+            <SlidersHorizontal className="w-3 h-3" /> Output Mode
+          </label>
+          <div className="grid grid-cols-5 gap-1">
+            {OUTPUT_MODES.map(({ k, label, desc }) => (
+              <button
+                key={k}
+                onClick={() => setOutputMode(k)}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-2 py-2 rounded-md text-xs font-medium transition-all border",
+                  outputMode === k
+                    ? "bg-green-500/10 text-green-400 border-green-400/30"
+                    : "bg-daw-surface-2 text-daw-text-muted border-transparent hover:bg-daw-surface-3 hover:border-daw-border"
+                )}
+              >
+                <span>{label}</span>
+                <span className="text-[8px] text-daw-text-dim leading-none text-center">{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Lyrics Text Input */}
         <div>
           <label className="block text-[10px] uppercase tracking-wider text-daw-text-dim mb-1.5 flex items-center gap-1">
@@ -240,7 +273,35 @@ export default function LeadBackSplitPage() {
             exit={{ opacity: 0, y: -12 }}
             className="glass rounded-xl p-4 space-y-3 border border-daw-green/20"
           >
+            {/* Mixed output (when not split mode) */}
+            {result.output_mode !== "split" && result.mixed_url && (
+              <div className="flex items-center gap-3 p-2 rounded-lg bg-green-500/10 border border-green-500/20">
+                <button
+                  onClick={() => audioPlayer.toggle(result.mixed_url)}
+                  className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center shrink-0 hover:from-green-500/40 hover:to-emerald-500/40 transition-all"
+                >
+                  {audioPlayer.isCurrentUrl(result.mixed_url) && audioPlayer.isPlaying ? <Pause className="w-5 h-5 text-green-400" /> : <Play className="w-5 h-5 text-green-400 ml-0.5" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-daw-text">
+                    {result.output_mode === "remove_lead" ? "No Lead (Instrumental + Backing)" :
+                     result.output_mode === "remove_backing" ? "No Backing (Instrumental + Lead)" :
+                     result.output_mode === "lead_only" ? "Lead Vocals" : "Backing Vocals"}
+                  </span>
+                  <span className="text-[10px] text-daw-text-dim block">
+                    {result.output_mode === "remove_lead" ? "Full track minus main vocals" :
+                     result.output_mode === "remove_backing" ? "Full track minus backing vocals" :
+                     result.output_mode === "lead_only" ? "Isolated main vocal" : "Isolated backing vocals"}
+                  </span>
+                </div>
+                <a href={result.mixed_url} download={`${result.output_mode}.wav`} className="p-2 rounded-lg bg-green-500/10 hover:bg-green-500/20 transition-colors">
+                  <Download className="w-4 h-4 text-green-400" />
+                </a>
+              </div>
+            )}
+
             {/* Lead Vocals */}
+            {(result.output_mode === "split" || result.output_mode === "remove_backing") && (
             <div className="flex items-center gap-3 p-2 rounded-lg bg-purple-500/5 border border-purple-500/10">
               <button
                 onClick={() => audioPlayer.toggle(result.lead_url)}
@@ -264,8 +325,10 @@ export default function LeadBackSplitPage() {
                 <Download className="w-4 h-4 text-daw-accent" />
               </a>
             </div>
+            )}
 
             {/* Backing Vocals */}
+            {(result.output_mode === "split" || result.output_mode === "remove_lead") && (
             <div className="flex items-center gap-3 p-2 rounded-lg bg-cyan-500/5 border border-cyan-500/10">
               <button
                 onClick={() => audioPlayer.toggle(result.backing_url)}
@@ -281,8 +344,10 @@ export default function LeadBackSplitPage() {
                 <Download className="w-4 h-4 text-daw-accent" />
               </a>
             </div>
+            )}
 
-            {/* Vocal Instrumental */}
+            {/* Vocal Instrumental (only in split mode) */}
+            {result.output_mode === "split" && (
             <div className="flex items-center gap-3 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
               <Music className="w-12 h-12 p-2 rounded-xl bg-gradient-to-br from-amber-500/20 to-yellow-500/20 text-amber-400 shrink-0" />
               <div className="flex-1 min-w-0">
@@ -293,6 +358,7 @@ export default function LeadBackSplitPage() {
                 <Download className="w-4 h-4 text-daw-accent" />
               </a>
             </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
