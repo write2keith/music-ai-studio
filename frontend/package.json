@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "mkdir -p public/alphatab/font public/alphatab/soundfont && cp -n node_modules/@coderline/alphatab/dist/font/* public/alphatab/font/ 2>/dev/null; cp -n node_modules/@coderline/alphatab/dist/soundfont/* public/alphatab/soundfont/ 2>/dev/null; true"
+    "postinstall": "mkdir -p public/alphatab/font public/alphatab/soundfont && cp -n node_modules/@coderline/alphatab/dist/font/* public/alphatab/font/ 2>/dev/null; cp -n node_modules/@coderline/alphatab/dist/soundfont/* public/alphatab/soundfont/ 2>/dev/null; cp node_modules/@coderline/alphatab/dist/alphaTab.mjs public/alphatab/alphatab.mjs; cp node_modules/@coderline/alphatab/dist/alphaTab.core.mjs public/alphatab/alphatab.core.mjs; true"
   },
   "dependencies": {
     "@coderline/alphatab": "^1.8.4",

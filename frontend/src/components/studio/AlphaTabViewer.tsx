@@ -39,7 +39,8 @@ export default function AlphaTabViewer({
     let cancelled = false;
     let api: any = null;
 
-    import("@coderline/alphatab")
+    // @ts-ignore - public-asset dynamic import bypasses Turbopack module resolution
+    import("/alphatab/alphatab.mjs")
       .then((mod) => {
         if (cancelled || !containerRef.current) return;
 
