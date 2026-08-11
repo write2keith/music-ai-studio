@@ -1,16 +1,41 @@
 #!/bin/bash
+set -e
 
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 echo "Starting Music AI Studio..."
 echo ""
 
-cd "$(dirname "$0")"
+# ── Backend ──────────────────────────────────────────
+echo "[backend] Installing dependencies..."
+pip install --break-system-packages -q -r "$ROOT/backend/requirements.txt"
 
-export PORT="${PORT:-8000}"
-export MUSICGEN_MODEL_SIZE="${MUSICGEN_MODEL_SIZE:-small}"
-export MUSICGEN_DURATION="${MUSICGEN_DURATION:-10}"
+echo "[backend] Starting on port 8000..."
+cd "$ROOT/backend"
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+BACKEND_PID=$!
 
-echo "Backend port: $PORT"
-echo "MusicGen model: facebook/musicgen-$MUSICGEN_MODEL_SIZE"
+# ── Frontend ─────────────────────────────────────────
+echo "[frontend] Installing dependencies..."
+cd "$ROOT/frontend"
+npm install --silent
+
+echo "[frontend] Starting on port 3000..."
+npm run dev &
+FRONTEND_PID=$!
+
+echo ""
+echo "Backend:  http://localhost:8000"
+echo "Frontend: http://localhost:3000"
 echo ""
 
-python3 backend/app.py
+# ── Cleanup on exit ──────────────────────────────────
+cleanup() {
+  echo ""
+  echo "Shutting down..."
+  kill $BACKEND_PID 2>/dev/null
+  kill $FRONTEND_PID 2>/dev/null
+  wait
+}
+trap cleanup EXIT INT TERM
+
+wait
