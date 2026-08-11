@@ -2564,18 +2564,17 @@ async def lead_back_split(
                 import numpy as np
                 import scipy.io.wavfile as _wav
 
-                prim = result["backing_path"] if output_mode == "remove_lead" else result["lead_path"]
-                sec = result["instrumental_path"]
-                out_name = "no_lead" if output_mode == "remove_lead" else "no_backing"
+                if output_mode == "remove_lead":
+                    prim = result["backing_path"]
+                    out_name = "no_lead"
+                else:
+                    prim = result["lead_path"]
+                    out_name = "no_backing"
 
                 pdata, sr = sf.read(prim)
                 pdata = pdata.astype(np.float32)
                 if pdata.ndim > 1: pdata = pdata.mean(axis=1)
-                sdata, _ = sf.read(sec)
-                sdata = sdata.astype(np.float32)
-                if sdata.ndim > 1: sdata = sdata.mean(axis=1)
-                mn = min(len(pdata), len(sdata))
-                mixed = pdata[:mn] + sdata[:mn]
+                mixed = pdata.copy()
 
                 for stem_key in ["bass", "drums", "other"]:
                     sp = stem_result["stems"].get(stem_key)

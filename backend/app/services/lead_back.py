@@ -74,14 +74,17 @@ def split_lead_backing(
         lead_mask /= max(total_w, 1e-10)
         used_method = "+".join(n for n, _ in masks)
 
-    # ── Threshold & smooth ──────────────────────────────────────
+    # ── Binary gate + smooth transitions ────────────────────────
+    lead_mask = (lead_mask > 0.4).astype(np.float32)
     backing_mask = 1.0 - lead_mask
 
-    smooth_len = hop * 3
-    kernel = np.hanning(smooth_len)
-    kernel /= kernel.sum()
-    lead_mask = np.convolve(lead_mask, kernel, mode="same")
-    backing_mask = np.convolve(backing_mask, kernel, mode="same")
+    # Short crossfade kernel to avoid clicks (~10ms at 44.1kHz)
+    fade_samples = max(1, int(sr * 0.010))
+    fade_kernel = np.hanning(fade_samples * 2)
+    fade_kernel /= fade_kernel.sum()
+
+    lead_mask = np.convolve(lead_mask, fade_kernel, mode="same")
+    backing_mask = np.convolve(backing_mask, fade_kernel, mode="same")
 
     lead_mask = np.clip(lead_mask, 0, 1)
     backing_mask = np.clip(backing_mask, 0, 1)
