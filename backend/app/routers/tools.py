@@ -2551,74 +2551,83 @@ async def lead_back_split(
             method=method, lyrics_text=lyrics_text, stereo_aware=stereo_aware,
         )
 
-        # Build mixed output based on mode
+        # Build mixed output + MP3 conversion — all in thread pool
         from ..services.separator import wav_to_mp3 as _to_mp3
-        stems_dir = Path(stem_result["stems_dir"])
-        lb_stem_dir = Path(result["lead_path"]).parent.name  # e.g., "leadback_vocals"
-        mixed_url = ""
 
-        if output_mode in ("remove_lead", "remove_backing"):
-            import soundfile as sf
-            import numpy as np
-            import scipy.io.wavfile as _wav
+        def _post_process():
+            stems_dir = Path(stem_result["stems_dir"])
+            lb_stem_dir = Path(result["lead_path"]).parent.name
+            mixed_url = ""
 
-            if output_mode == "remove_lead":
-                prim = result["backing_path"]
+            if output_mode in ("remove_lead", "remove_backing"):
+                import soundfile as sf
+                import numpy as np
+                import scipy.io.wavfile as _wav
+
+                prim = result["backing_path"] if output_mode == "remove_lead" else result["lead_path"]
                 sec = result["instrumental_path"]
-                out_name = "no_lead"
-            else:
-                prim = result["lead_path"]
-                sec = result["instrumental_path"]
-                out_name = "no_backing"
+                out_name = "no_lead" if output_mode == "remove_lead" else "no_backing"
 
-            pdata, sr = sf.read(prim)
-            pdata = pdata.astype(np.float32)
-            if pdata.ndim > 1: pdata = pdata.mean(axis=1)
-            sdata, _ = sf.read(sec)
-            sdata = sdata.astype(np.float32)
-            if sdata.ndim > 1: sdata = sdata.mean(axis=1)
-            mn = min(len(pdata), len(sdata))
-            mixed = pdata[:mn] + sdata[:mn]
+                pdata, sr = sf.read(prim)
+                pdata = pdata.astype(np.float32)
+                if pdata.ndim > 1: pdata = pdata.mean(axis=1)
+                sdata, _ = sf.read(sec)
+                sdata = sdata.astype(np.float32)
+                if sdata.ndim > 1: sdata = sdata.mean(axis=1)
+                mn = min(len(pdata), len(sdata))
+                mixed = pdata[:mn] + sdata[:mn]
 
-            for stem_key in ["bass", "drums", "other"]:
-                sp = stem_result["stems"].get(stem_key)
-                if sp:
-                    sd, _ = sf.read(str(Path(sp)))
-                    sd = sd.astype(np.float32)
-                    if sd.ndim > 1: sd = sd.mean(axis=1)
-                    mn2 = min(len(mixed), len(sd))
-                    mixed[:mn2] += sd[:mn2]
+                for stem_key in ["bass", "drums", "other"]:
+                    sp = stem_result["stems"].get(stem_key)
+                    if sp:
+                        sd, _ = sf.read(str(Path(sp)))
+                        sd = sd.astype(np.float32)
+                        if sd.ndim > 1: sd = sd.mean(axis=1)
+                        mn2 = min(len(mixed), len(sd))
+                        mixed[:mn2] += sd[:mn2]
 
-            peak = np.max(np.abs(mixed))
-            if peak > 0: mixed = mixed / peak * 0.95
-            mixed = (mixed * 32767).astype(np.int16)
-            mix_path = stems_dir / f"{out_name}.wav"
-            _wav.write(str(mix_path), sr, mixed)
-            mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{Path(_to_mp3(str(mix_path))).name}"
-        elif output_mode == "lead_only":
-            lead_mp3 = await _run_blocking(_to_mp3, result["lead_path"])
-            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}"
-        elif output_mode == "backing_only":
-            back_mp3 = await _run_blocking(_to_mp3, result["backing_path"])
-            mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}"
+                peak = np.max(np.abs(mixed))
+                if peak > 0: mixed = mixed / peak * 0.95
+                mixed = (mixed * 32767).astype(np.int16)
+                mix_path = stems_dir / f"{out_name}.wav"
+                _wav.write(str(mix_path), sr, mixed)
+                mix_mp3 = _to_mp3(str(mix_path))
+                mixed_url = f"/api/audio/stems/htdemucs/{stems_dir.name}/{Path(mix_mp3).name}"
+            elif output_mode == "lead_only":
+                lead_mp3 = _to_mp3(result["lead_path"])
+                mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}"
+            elif output_mode == "backing_only":
+                back_mp3 = _to_mp3(result["backing_path"])
+                mixed_url = f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}"
 
-        # Convert all output stems to MP3
-        lead_mp3 = await _run_blocking(_to_mp3, result["lead_path"])
-        back_mp3 = await _run_blocking(_to_mp3, result["backing_path"])
-        inst_mp3 = await _run_blocking(_to_mp3, result["instrumental_path"])
+            lead_mp3 = _to_mp3(result["lead_path"])
+            back_mp3 = _to_mp3(result["backing_path"])
+            inst_mp3 = _to_mp3(result["instrumental_path"])
+
+            lead_url = f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}"
+            back_url = f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}"
+            inst_url = f"/api/audio/stems//{lb_stem_dir}/{Path(inst_mp3).name}"
+
+            return mixed_url, lead_url, back_url, inst_url
+
+        mixed_url, lead_url, backing_url, instrumental_url = await _run_blocking(_post_process)
 
         return LeadBackResponse(
             ok=True,
-            lead_url=f"/api/audio/stems//{lb_stem_dir}/{Path(lead_mp3).name}",
-            backing_url=f"/api/audio/stems//{lb_stem_dir}/{Path(back_mp3).name}",
-            instrumental_url=f"/api/audio/stems//{lb_stem_dir}/{Path(inst_mp3).name}",
+            lead_url=lead_url,
+            backing_url=backing_url,
+            instrumental_url=instrumental_url,
             mixed_url=mixed_url,
             lead_ratio=result["lead_ratio"],
             duration=result["duration"],
             method=result.get("method", method),
             output_mode=output_mode,
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        logger.exception(f"Lead/back split failed: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
