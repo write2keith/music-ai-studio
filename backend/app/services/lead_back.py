@@ -12,8 +12,8 @@ def split_lead_backing(
     lyrics_text: str = "",
     stereo_aware: bool = True,
 ) -> dict:
-    sr, data = wav.read(vocals_path)
-    orig_dtype = data.dtype
+    import soundfile as sf
+    data, sr = sf.read(vocals_path)
     is_stereo = data.ndim > 1 and data.shape[1] >= 2
 
     if data.ndim > 1:
@@ -21,10 +21,6 @@ def split_lead_backing(
         right = data[:, 1].astype(np.float32) if data.shape[1] >= 2 else left.copy()
     else:
         left = right = data.astype(np.float32)
-
-    if np.issubdtype(orig_dtype, np.integer):
-        left /= 32767.0
-        right /= 32767.0
 
     audio_mono = (left + right) / 2.0
 
