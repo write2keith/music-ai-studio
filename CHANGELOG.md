@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.4.0] - 2026-08-12
+
+### Added
+- **Karaoke Studio Overhaul (`/tools/karaoke`)** — Completely redesigned step-by-step 4-stage studio wizard:
+  - **Stage 1 (Audio & Mode)**: AI Vocal Removal (Demucs stem separation) vs. Direct Instrumental upload with drag & drop Web Audio decoding.
+  - **Stage 2 (Lyrics & Theme)**: AI Auto-Detection & Sync via Whisper speech-to-text, 📋 Clipboard Paste helper, 🔍 Online Lyrics Search, and theme customizers (preset colors, dynamic gradients, custom image backgrounds, looped video backgrounds).
+  - **Stage 3 (Sync & Fine-tune)**: Interactive waveform timeline editor with draggable word blocks and start/end handle resizers.
+  - **Stage 4 (Preview & Export)**: Fullscreen 1920x1080 live preview canvas with real-time syllable color wipes, active word glow underlines, and 1080p Full HD / 720p HD MP4/WebM video rendering.
+- **KaddaOKTools & Nightingale Keyboard Shortcuts & Features**:
+  - `Spacebar` or `Right-Arrow (→)` to advance and set word start timing during tap sync.
+  - `Down-Arrow (↓)` or `E` key to mark phrase cut/stop end timing.
+  - Real-time word-level syllable color-wipe rendering and glowing active word underlines.
+- **Smooth Backend Polling & Progress Sync**:
+  - Accurate progress scaling (0% to 99%) for local CPU/GPU Demucs stem separation, preventing premature 100% status state transitions.
+
 ## [2.3.0] - 2026-08-07
 
 ### Added

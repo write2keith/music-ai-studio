@@ -205,6 +205,6 @@ See `.env.example` for the complete list covering:
 | `/community` | Explore | Public feed of published tracks |
 | `/library` | My Library | Personal track collection |
 | `/generate` | Separation | Upload audio, split into stems |
-| `/tools` | Utilities | YouTube, Compressor, Note Detection, Vocal Coach |
+| `/tools/karaoke` | Karaoke Studio | Guided 4-step Karaoke Video Studio (AI vocal separation, Whisper auto-detection, tap-syncing, waveform editor, 1080p video export) |
 | `/editor` | Multitrack | Multi-track recorder and mixer |
 | `/settings` | Settings | AI provider configuration |
