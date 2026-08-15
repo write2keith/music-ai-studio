@@ -70,11 +70,13 @@ export default function KaraokePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Creation mode
-  type CreationMode = "song" | "instrumental";
+  type CreationMode = "song" | "instrumental" | "youtube";
   const [creationMode, setCreationMode] = useState<CreationMode>("song");
   const [separating, setSeparating] = useState(false);
   const [sepProgress, setSepProgress] = useState("");
   const [autoTranscribing, setAutoTranscribing] = useState(false);
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytLoading, setYtLoading] = useState(false);
 
   // Export & Editing State
   const [exporting, setExporting] = useState(false);
@@ -199,6 +201,29 @@ export default function KaraokePage() {
       setSeparating(false);
     },
     [audioUrl],
+  );
+
+  const handleYoutubeDownload = useCallback(
+    async (urlToFetch: string) => {
+      if (!urlToFetch.trim()) return;
+      setYtLoading(true);
+      setError("");
+      try {
+        const result = await api.tools.youtube(urlToFetch.trim(), false);
+        if (!result.ok || !result.url) {
+          throw new Error("YouTube download failed");
+        }
+        const resp = await fetch(result.url);
+        const blob = await resp.blob();
+        const downloadedFile = new File([blob], `${result.title || "youtube"}.m4a`, { type: blob.type || "audio/m4a" });
+        await handleCreateFromSong(downloadedFile);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "YouTube download failed");
+      } finally {
+        setYtLoading(false);
+      }
+    },
+    [handleCreateFromSong],
   );
 
   // ── Background handlers ──
@@ -745,7 +770,7 @@ export default function KaraokePage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <button
                 onClick={() => setCreationMode("song")}
                 className={cn(
@@ -758,9 +783,27 @@ export default function KaraokePage() {
                 <div className="w-10 h-10 rounded-lg bg-violet-500/20 flex items-center justify-center mb-3 text-violet-400">
                   <Wand2 className="w-5 h-5" />
                 </div>
-                <h3 className="text-sm font-semibold text-daw-text mb-1">From a Song (AI Vocal Removal)</h3>
+                <h3 className="text-sm font-semibold text-daw-text mb-1">From a Song (AI Removal)</h3>
                 <p className="text-xs text-daw-text-dim leading-relaxed">
-                  Upload a standard MP3/WAV song with vocals. Our AI will automatically isolate the instrumental backing track for your video.
+                  Upload an audio file. Our AI will isolate the instrumental backing track automatically.
+                </p>
+              </button>
+
+              <button
+                onClick={() => setCreationMode("youtube")}
+                className={cn(
+                  "p-5 rounded-xl border transition-all text-left group relative",
+                  creationMode === "youtube"
+                    ? "border-red-500 bg-red-500/10"
+                    : "border-daw-border bg-daw-surface-2/60 hover:bg-daw-surface-2"
+                )}
+              >
+                <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center mb-3 text-red-400">
+                  <Film className="w-5 h-5" />
+                </div>
+                <h3 className="text-sm font-semibold text-daw-text mb-1">From YouTube URL</h3>
+                <p className="text-xs text-daw-text-dim leading-relaxed">
+                  Paste any YouTube song link to download the track and extract the backing instrumental.
                 </p>
               </button>
 
@@ -776,75 +819,117 @@ export default function KaraokePage() {
                 <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center mb-3 text-cyan-400">
                   <Guitar className="w-5 h-5" />
                 </div>
-                <h3 className="text-sm font-semibold text-daw-text mb-1">From Instrumental Track</h3>
+                <h3 className="text-sm font-semibold text-daw-text mb-1">From Instrumental</h3>
                 <p className="text-xs text-daw-text-dim leading-relaxed">
-                  Already have a karaoke track or instrumental version? Upload directly to skip stem separation.
+                  Already have a karaoke track? Upload directly to sync lyrics without stem separation.
                 </p>
               </button>
             </div>
 
-            {/* Audio Drop Zone */}
-            <div
-              onDrop={(e) => {
-                e.preventDefault();
-                const f = e.dataTransfer.files[0];
-                if (f && !separating) {
-                  creationMode === "song" ? handleCreateFromSong(f) : handleAudioLoad(f);
-                }
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onClick={() => !separating && document.getElementById("karaoke-audio-input")?.click()}
-              className={cn(
-                "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3",
-                separating
-                  ? "border-amber-500/50 bg-amber-500/5 cursor-wait"
-                  : audioFile
-                  ? "border-emerald-500/50 bg-emerald-500/5"
-                  : "border-daw-border hover:border-cyan-400/40 hover:bg-daw-surface-2"
-              )}
-            >
-              <input
-                id="karaoke-audio-input"
-                type="file"
-                accept=".wav,.mp3,.m4a,audio/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
+            {/* YouTube Link Input or File Drop Zone */}
+            {creationMode === "youtube" ? (
+              <div className="p-6 rounded-xl border border-red-500/30 bg-red-500/5 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-widest text-red-400 font-bold flex items-center gap-1.5">
+                    <Film className="w-4 h-4" /> YouTube Song URL
+                  </label>
+                  <p className="text-xs text-daw-text-dim">
+                    Paste a YouTube link (e.g. https://www.youtube.com/watch?v=...)
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={ytUrl}
+                    onChange={(e) => setYtUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="flex-1 bg-daw-surface-2 text-daw-text text-sm rounded-lg px-3 py-2.5 outline-none border border-daw-border font-mono placeholder:text-daw-text-dim/40"
+                  />
+                  <Button
+                    disabled={!ytUrl.trim() || ytLoading || separating}
+                    onClick={() => handleYoutubeDownload(ytUrl)}
+                    className="bg-red-500 text-white hover:bg-red-600 font-bold px-5"
+                  >
+                    {ytLoading || separating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        {separating ? sepProgress : "Downloading YouTube..."}
+                      </>
+                    ) : (
+                      "Import & Extract Vocals"
+                    )}
+                  </Button>
+                </div>
+                {audioFile && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20">
+                    <FileAudio className="w-4 h-4" />
+                    <span>Loaded YouTube Track: <strong>{audioFile.name}</strong> ({formatTime(audioDuration)})</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const f = e.dataTransfer.files[0];
                   if (f && !separating) {
                     creationMode === "song" ? handleCreateFromSong(f) : handleAudioLoad(f);
                   }
                 }}
-              />
-              {separating ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
-                  <span className="text-sm font-medium text-amber-300">{sepProgress}</span>
-                </div>
-              ) : audioFile ? (
-                <div className="flex flex-col items-center gap-2">
-                  <FileAudio className="w-10 h-10 text-emerald-400" />
-                  <span className="text-base font-bold text-daw-text">{audioFile.name}</span>
-                  <span className="text-xs text-daw-text-dim">Duration: {formatTime(audioDuration)}</span>
-                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 mt-1">
-                    ✓ Track Ready
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <div className="w-12 h-12 rounded-full bg-daw-surface-2 flex items-center justify-center text-daw-text-dim">
-                    <Music className="w-6 h-6" />
+                onDragOver={(e) => e.preventDefault()}
+                onClick={() => !separating && document.getElementById("karaoke-audio-input")?.click()}
+                className={cn(
+                  "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3",
+                  separating
+                    ? "border-amber-500/50 bg-amber-500/5 cursor-wait"
+                    : audioFile
+                    ? "border-emerald-500/50 bg-emerald-500/5"
+                    : "border-daw-border hover:border-cyan-400/40 hover:bg-daw-surface-2"
+                )}
+              >
+                <input
+                  id="karaoke-audio-input"
+                  type="file"
+                  accept=".wav,.mp3,.m4a,audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f && !separating) {
+                      creationMode === "song" ? handleCreateFromSong(f) : handleAudioLoad(f);
+                    }
+                  }}
+                />
+                {separating ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+                    <span className="text-sm font-medium text-amber-300">{sepProgress}</span>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-daw-text">
-                      {creationMode === "song"
-                        ? "Click or drag your song here to remove vocals"
-                        : "Click or drag your instrumental track here"}
-                    </p>
-                    <p className="text-xs text-daw-text-dim mt-1">Supports MP3, WAV, M4A up to 100MB</p>
+                ) : audioFile ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <FileAudio className="w-10 h-10 text-emerald-400" />
+                    <span className="text-base font-bold text-daw-text">{audioFile.name}</span>
+                    <span className="text-xs text-daw-text-dim">Duration: {formatTime(audioDuration)}</span>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 mt-1">
+                      ✓ Track Ready
+                    </span>
                   </div>
-                </>
-              )}
-            </div>
+                ) : (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-daw-surface-2 flex items-center justify-center text-daw-text-dim">
+                      <Music className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-daw-text">
+                        {creationMode === "song"
+                          ? "Click or drag your song here to remove vocals"
+                          : "Click or drag your instrumental track here"}
+                      </p>
+                      <p className="text-xs text-daw-text-dim mt-1">Supports MP3, WAV, M4A up to 100MB</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Next Button */}
             <div className="flex justify-end pt-4">
