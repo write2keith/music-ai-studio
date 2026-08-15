@@ -213,7 +213,10 @@ export default function KaraokePage() {
         if (!result.ok || !result.url) {
           throw new Error("YouTube download failed");
         }
-        const resp = await fetch(result.url);
+        const audioFetchUrl = result.url.startsWith("http")
+          ? result.url
+          : `${process.env.NEXT_PUBLIC_API_URL || ""}${result.url}`;
+        const resp = await fetch(audioFetchUrl);
         const blob = await resp.blob();
         const downloadedFile = new File([blob], `${result.title || "youtube"}.m4a`, { type: blob.type || "audio/m4a" });
         await handleCreateFromSong(downloadedFile);
