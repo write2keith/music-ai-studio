@@ -4,6 +4,13 @@ push_*.py
 
 # Python
 __pycache__/
+*.py[cod]
+# Virtual environments
+**/venv/
+**/.venv/
+
+# Stray pip install log (accidentally committed)
+backend/3.0.0
 
 # Output files
 output/
